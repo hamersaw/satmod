@@ -5,7 +5,7 @@ fn get_coordinate_deltas(precision: u8) -> (f64, f64) {
 
     // calculate deltas
     let lat_delta = 180.0 / 2_u32.pow(lat_bits as u32) as f64;
-    let long_delta = 260.0 / 2_u32.pow(long_bits as u32) as f64;
+    let long_delta = 360.0 / 2_u32.pow(long_bits as u32) as f64;
 
     (lat_delta, long_delta)
 }
@@ -22,8 +22,6 @@ pub fn get_coordinate_bounds(lat_min: f64, lat_max: f64, long_min: f64,
     let long_max_index = (long_max / long_delta).ceil() as i32;
 
     // calculate geohash bounds
-    let max_area = lat_delta * long_delta;
-
     let mut coordinate_bounds = Vec::new();
     for lat_index in lat_min_index..lat_max_index {
         let lat_index = lat_index as f64;
@@ -55,17 +53,17 @@ mod tests {
     #[test]
     fn coordinate_delta() {
         assert_eq!(super::get_coordinate_deltas(1),
-            (45.0, 32.5));
+            (45.0, 45.0));
         assert_eq!(super::get_coordinate_deltas(2),
-            (5.625, 8.125));
+            (5.625, 11.25));
         assert_eq!(super::get_coordinate_deltas(3),
-            (1.40625, 1.015625));
+            (1.40625, 1.40625));
         assert_eq!(super::get_coordinate_deltas(4),
-            (0.17578125, 0.25390625));
+            (0.17578125, 0.3515625));
         assert_eq!(super::get_coordinate_deltas(5),
-            (0.0439453125, 0.03173828125));
+            (0.0439453125, 0.0439453125));
         assert_eq!(super::get_coordinate_deltas(6),
-            (0.0054931640625, 0.0079345703125));
+            (0.0054931640625, 0.010986328125));
     }
 
     #[test]
@@ -73,7 +71,7 @@ mod tests {
         // TODO - figure out how to unit test
         let bounds = super::get_coordinate_bounds(-80.0, -70.0, 70.0, 80.0, 3);
         for bound in bounds {
-            println!("{:?}", bound);
+            //println!("{:?}", bound);
         }
     }
 }
