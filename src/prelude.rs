@@ -1,1 +1,1 @@
-pub use crate::geohash::{get_bounds};
+pub use crate::geohash::{get_coordinate_bounds};
