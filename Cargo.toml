@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 geohash = "0.9"
+image = " 0.23"

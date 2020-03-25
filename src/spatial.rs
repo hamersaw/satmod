@@ -69,9 +69,9 @@ mod tests {
     #[test]
     fn bounds() {
         // TODO - figure out how to unit test
-        let bounds = super::get_coordinate_bounds(-80.0, -70.0, 70.0, 80.0, 3);
-        for bound in bounds {
-            //println!("{:?}", bound);
-        }
+        let _bounds = super::get_coordinate_bounds(-80.0, -70.0, 70.0, 80.0, 3);
+        /*for bound in bounds {
+            println!("{:?}", bound);
+        }*/
     }
 }
