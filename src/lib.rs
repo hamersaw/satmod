@@ -1,25 +1,23 @@
 use geohash::{self, Coordinate};
-use image::{GenericImageView, ImageBuffer, Pixel, SubImage};
+use image::{DynamicImage, GenericImageView};
 
 mod spatial;
 
-use std::ops::{Deref, DerefMut};
-
-pub trait Splittable<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> {
-    fn split(&self, precision: u8) -> Vec<StImage<T, Vec<T::Subpixel>>>;
+pub trait Splittable {
+    fn split(&mut self, precision: u8) -> Vec<StImage>;
 }
 
-pub struct RawImage<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> {
-    image: ImageBuffer<T, U>,
+pub struct RawImage {
+    image: DynamicImage,
     lat_min: f64,
     lat_max: f64,
     long_min: f64,
     long_max: f64,
 }
 
-impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> RawImage<T, U> {
-    pub fn new(image: ImageBuffer<T, U>, lat_min: f64, lat_max: f64,
-            long_min: f64, long_max: f64) -> RawImage<T, U> {
+impl RawImage {
+    pub fn new(image: DynamicImage, lat_min: f64, lat_max: f64,
+            long_min: f64, long_max: f64) -> RawImage {
         // TODO - check coordinates for validity
         RawImage {
             image: image,
@@ -31,8 +29,8 @@ impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> RawImage<T
     }
 }
 
-impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut + 'static> Splittable<T, U> for RawImage<T, U> {
-    fn split(&self, precision: u8) -> Vec<StImage<T, Vec<T::Subpixel>>> {
+impl Splittable for RawImage {
+    fn split(&mut self, precision: u8) -> Vec<StImage> {
         // compute geohash coordinate bounds
         let bounds = spatial::get_coordinate_bounds(self.lat_min,
             self.lat_max, self.long_min, self.long_max, precision);
@@ -55,10 +53,8 @@ impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut + 'static> 
 
             println!("{}-{}, {}-{}", min_y, max_y, min_x, max_x);
 
-            // initialize subimage
-            let subimage = &self.image.view(min_x, min_y,
+            let image = self.image.crop(min_x, min_y,
                 max_x - min_x, max_y - min_y);
-            let image = subimage.to_image();
 
             // add new StImage
             st_images.push(StImage::new(image,
@@ -66,12 +62,11 @@ impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut + 'static> 
         }
 
         st_images
-        //Vec::new()
     }
 }
 
-pub struct StImage<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> {
-    image: ImageBuffer<T, U>,
+pub struct StImage {
+    image: DynamicImage,
     lat_min: f64,
     lat_max: f64,
     long_min: f64,
@@ -79,9 +74,9 @@ pub struct StImage<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefM
     precision: u8,
 }
 
-impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> StImage<T, U> {
-    pub fn new(image: ImageBuffer<T, U>, lat_min: f64, lat_max: f64,
-            long_min: f64, long_max: f64, precision: u8) -> StImage<T, U> {
+impl StImage {
+    pub fn new(image: DynamicImage, lat_min: f64, lat_max: f64,
+            long_min: f64, long_max: f64, precision: u8) -> StImage {
         // TODO - check coordinates for validity
         StImage {
             image: image,
@@ -119,7 +114,8 @@ mod tests {
         // read jpg image
         let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
 
-        let raw_image = RawImage::new(image, 39.41291, 41.34748, -106.61415, -103.92836);
+        let mut raw_image = RawImage::new(image,
+            39.41291, 41.34748, -106.61415, -103.92836);
         for st_image in raw_image.split(4) {
             println!("{} - {}", st_image.geohash(),
                 st_image.geohash_coverage());
