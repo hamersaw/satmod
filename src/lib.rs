@@ -51,13 +51,12 @@ impl Splittable for RawImage {
             let max_x = (((bound.3 - self.long_min) / long_range)
                 * self.image.width() as f64).floor() as u32;
 
-            println!("{}-{}, {}-{}", min_y, max_y, min_x, max_x);
-
-            let image = self.image.crop(min_x, min_y,
+            // crop image to geohash bounds
+            let subimage = self.image.crop(min_x, min_y,
                 max_x - min_x, max_y - min_y);
 
             // add new StImage
-            st_images.push(StImage::new(image,
+            st_images.push(StImage::new(subimage,
                 bound.0, bound.1, bound.2, bound.3, precision));
         }
 
@@ -106,19 +105,24 @@ impl StImage {
 
 #[cfg(test)]
 mod tests {
-    use image::{self};
+    use image::{self, ImageFormat};
     use super::{RawImage, Splittable};
 
     #[test]
     fn images() {
         // read jpg image
         let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
+        //let image = match image::open("examples/L1C_T13TDE_A022303_20190929T175231-0.png").unwrap();
 
         let mut raw_image = RawImage::new(image,
             39.41291, 41.34748, -106.61415, -103.92836);
         for st_image in raw_image.split(4) {
             println!("{} - {}", st_image.geohash(),
                 st_image.geohash_coverage());
+
+            // write image
+            st_image.image.save_with_format(format!("examples/{}{}.png",
+                st_image.lat_min, st_image.long_min), ImageFormat::Png);
         }
     }
 }
