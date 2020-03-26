@@ -1,23 +1,25 @@
 use geohash::{self, Coordinate};
-use image::DynamicImage;
+use image::{GenericImageView, ImageBuffer, Pixel, SubImage};
 
 mod spatial;
 
-pub trait Splittable {
-    fn split(&self, precision: u8) -> Vec<StImage>;
+use std::ops::{Deref, DerefMut};
+
+pub trait Splittable<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> {
+    fn split(&self, precision: u8) -> Vec<StImage<T, Vec<T::Subpixel>>>;
 }
 
-pub struct RawImage {
-    image: DynamicImage,
+pub struct RawImage<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> {
+    image: ImageBuffer<T, U>,
     lat_min: f64,
     lat_max: f64,
     long_min: f64,
     long_max: f64,
 }
 
-impl RawImage {
-    pub fn new(image: DynamicImage, lat_min: f64, lat_max: f64,
-            long_min: f64, long_max: f64) -> RawImage {
+impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> RawImage<T, U> {
+    pub fn new(image: ImageBuffer<T, U>, lat_min: f64, lat_max: f64,
+            long_min: f64, long_max: f64) -> RawImage<T, U> {
         // TODO - check coordinates for validity
         RawImage {
             image: image,
@@ -29,22 +31,8 @@ impl RawImage {
     }
 }
 
-impl Splittable for RawImage {
-    fn split(&self, precision: u8) -> Vec<StImage> {
-        // retrieve image dimensions
-        let (x_dim, y_dim) = match &self.image {
-            DynamicImage::ImageLuma8(x) => x.dimensions(),
-            DynamicImage::ImageLumaA8(x) => x.dimensions(),
-            DynamicImage::ImageRgb8(x) => x.dimensions(),
-            DynamicImage::ImageRgba8(x) => x.dimensions(),
-            DynamicImage::ImageBgr8(x) => x.dimensions(),
-            DynamicImage::ImageBgra8(x) => x.dimensions(),
-            DynamicImage::ImageLuma16(x) => x.dimensions(),
-            DynamicImage::ImageLumaA16(x) => x.dimensions(),
-            DynamicImage::ImageRgb16(x) => x.dimensions(),
-            DynamicImage::ImageRgba16(x) => x.dimensions(),
-        };
-
+impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut + 'static> Splittable<T, U> for RawImage<T, U> {
+    fn split(&self, precision: u8) -> Vec<StImage<T, Vec<T::Subpixel>>> {
         // compute geohash coordinate bounds
         let bounds = spatial::get_coordinate_bounds(self.lat_min,
             self.lat_max, self.long_min, self.long_max, precision);
@@ -52,32 +40,38 @@ impl Splittable for RawImage {
         // iterate over bounds
         let mut st_images = Vec::new();
         for bound in bounds {
-            // compute pixels for image
-
+            // compute pixels for subimage
             let lat_range = self.lat_max - self.lat_min;
             let min_y = (((bound.0 - self.lat_min) / lat_range)
-                * y_dim as f64).ceil();
+                * self.image.height() as f64).ceil() as u32;
             let max_y = (((bound.1 - self.lat_min) / lat_range)
-                * y_dim as f64).floor();
+                * self.image.height() as f64).floor() as u32;
 
             let long_range = self.long_max - self.long_min;
             let min_x = (((bound.2 - self.long_min) / long_range)
-                * x_dim as f64).ceil();
+                * self.image.width() as f64).ceil() as u32;
             let max_x = (((bound.3 - self.long_min) / long_range)
-                * x_dim as f64).floor();
+                * self.image.width() as f64).floor() as u32;
 
             println!("{}-{}, {}-{}", min_y, max_y, min_x, max_x);
 
+            // initialize subimage
+            let subimage = &self.image.view(min_x, min_y,
+                max_x - min_x, max_y - min_y);
+            let image = subimage.to_image();
+
             // add new StImage
-            st_images.push(StImage::new(bound.0, bound.1,
-                bound.2, bound.3, precision));
+            st_images.push(StImage::new(image,
+                bound.0, bound.1, bound.2, bound.3, precision));
         }
 
         st_images
+        //Vec::new()
     }
 }
 
-pub struct StImage {
+pub struct StImage<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> {
+    image: ImageBuffer<T, U>,
     lat_min: f64,
     lat_max: f64,
     long_min: f64,
@@ -85,11 +79,12 @@ pub struct StImage {
     precision: u8,
 }
 
-impl StImage {
-    pub fn new(lat_min: f64, lat_max: f64,
-            long_min: f64, long_max: f64, precision: u8) -> StImage {
+impl<T: Pixel + 'static, U: Deref<Target = [T::Subpixel]> + DerefMut> StImage<T, U> {
+    pub fn new(image: ImageBuffer<T, U>, lat_min: f64, lat_max: f64,
+            long_min: f64, long_max: f64, precision: u8) -> StImage<T, U> {
         // TODO - check coordinates for validity
         StImage {
+            image: image,
             lat_min: lat_min,
             lat_max: lat_max,
             long_min: long_min,
