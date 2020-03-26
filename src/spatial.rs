@@ -1,7 +1,7 @@
-fn get_coordinate_deltas(precision: u8) -> (f64, f64) {
+fn get_coordinate_deltas(precision: usize) -> (f64, f64) {
     // calculate number of bits for latitude and longitude
-    let lat_bits = (2 * precision) + (precision as f32 / 2.0).floor() as u8;
-    let long_bits = (2 * precision) + (precision as f32 / 2.0).ceil() as u8;
+    let lat_bits = (2 * precision) as f64 + (precision as f64 / 2.0).floor();
+    let long_bits = (2 * precision) as f64 + (precision as f64 / 2.0).ceil();
 
     // calculate deltas
     let lat_delta = 180.0 / 2_u32.pow(lat_bits as u32) as f64;
@@ -11,7 +11,7 @@ fn get_coordinate_deltas(precision: u8) -> (f64, f64) {
 }
 
 pub fn get_coordinate_bounds(lat_min: f64, lat_max: f64, long_min: f64,
-        long_max: f64, precision: u8) -> Vec<(f64, f64, f64, f64)> {
+        long_max: f64, precision: usize) -> Vec<(f64, f64, f64, f64)> {
     // calculate indices for minimum and maximum coordinates
     let (lat_delta, long_delta) = get_coordinate_deltas(precision);
 

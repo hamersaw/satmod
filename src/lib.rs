@@ -3,34 +3,58 @@ use image::{DynamicImage, GenericImageView};
 
 mod spatial;
 
-pub trait Splittable {
-    fn split(&mut self, precision: u8) -> Vec<StImage>;
-}
-
-pub struct RawImage {
+pub struct StImage {
     image: DynamicImage,
     lat_min: f64,
     lat_max: f64,
     long_min: f64,
     long_max: f64,
+    precision: Option<usize>,
 }
 
-impl RawImage {
+impl StImage {
     pub fn new(image: DynamicImage, lat_min: f64, lat_max: f64,
-            long_min: f64, long_max: f64) -> RawImage {
+            long_min: f64, long_max: f64, precision: Option<usize>) -> StImage {
         // TODO - check coordinates for validity
-        RawImage {
+        StImage {
             image: image,
             lat_min: lat_min,
             lat_max: lat_max,
             long_min: long_min,
             long_max: long_max,
+            precision: precision,
         }
     }
-}
 
-impl Splittable for RawImage {
-    fn split(&mut self, precision: u8) -> Vec<StImage> {
+    pub fn geohash(&self) -> Option<String> {
+        match self.precision {
+            None => None,
+            Some(precision) => {
+                let coordinate = Coordinate{x: self.long_max, y: self.lat_max};
+                let geohash = geohash::encode(coordinate, precision);
+
+                Some(geohash.unwrap())
+            },
+        }
+    }
+
+    pub fn geohash_coverage(&self) -> Option<f64> {
+        match self.precision {
+            None => None,
+            Some(_) => {
+                let geohash = self.geohash().unwrap();
+                let rect = geohash::decode_bbox(&geohash).unwrap();
+                // TODO - subtract black or white pixels
+                let coverage = ((self.long_max - self.long_min)
+                    * (self.lat_max - self.lat_min))
+                    / (rect.width() * rect.height());
+
+                Some(coverage)
+            }
+        }
+    }
+
+    pub fn split(&mut self, precision: usize) -> Vec<StImage> {
         // compute geohash coordinate bounds
         let bounds = spatial::get_coordinate_bounds(self.lat_min,
             self.lat_max, self.long_min, self.long_max, precision);
@@ -57,56 +81,17 @@ impl Splittable for RawImage {
 
             // add new StImage
             st_images.push(StImage::new(subimage,
-                bound.0, bound.1, bound.2, bound.3, precision));
+                bound.0, bound.1, bound.2, bound.3, Some(precision)));
         }
 
         st_images
     }
 }
 
-pub struct StImage {
-    image: DynamicImage,
-    lat_min: f64,
-    lat_max: f64,
-    long_min: f64,
-    long_max: f64,
-    precision: u8,
-}
-
-impl StImage {
-    pub fn new(image: DynamicImage, lat_min: f64, lat_max: f64,
-            long_min: f64, long_max: f64, precision: u8) -> StImage {
-        // TODO - check coordinates for validity
-        StImage {
-            image: image,
-            lat_min: lat_min,
-            lat_max: lat_max,
-            long_min: long_min,
-            long_max: long_max,
-            precision: precision,
-        }
-    }
-
-    pub fn geohash(&self) -> String {
-        let geohash = geohash::encode(
-            Coordinate{x: self.long_max, y: self.lat_max},
-            self.precision as usize
-        );
-
-        geohash.unwrap()
-    }
-
-    pub fn geohash_coverage(&self) -> f64 {
-        let rect = geohash::decode_bbox(&self.geohash()).unwrap();
-        ((self.long_max - self.long_min) * (self.lat_max - self.lat_min))
-            / (rect.width() * rect.height())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use image::{self, ImageFormat};
-    use super::{RawImage, Splittable};
+    use super::StImage;
 
     #[test]
     fn images() {
@@ -114,15 +99,15 @@ mod tests {
         let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
         //let image = match image::open("examples/L1C_T13TDE_A022303_20190929T175231-0.png").unwrap();
 
-        let mut raw_image = RawImage::new(image,
-            39.41291, 41.34748, -106.61415, -103.92836);
+        let mut raw_image = StImage::new(image,
+            39.41291, 41.34748, -106.61415, -103.92836, None);
         for st_image in raw_image.split(4) {
-            println!("{} - {}", st_image.geohash(),
+            println!("{:?} - {:?}", st_image.geohash(),
                 st_image.geohash_coverage());
 
             // write image
-            st_image.image.save_with_format(format!("examples/{}{}.png",
-                st_image.lat_min, st_image.long_min), ImageFormat::Png);
+            //st_image.image.save_with_format(format!("examples/{}{}.png",
+            //    st_image.lat_min, st_image.long_min), ImageFormat::Png);
         }
     }
 }
