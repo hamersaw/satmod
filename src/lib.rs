@@ -1,5 +1,9 @@
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use geohash::{self, Coordinate};
-use image::{DynamicImage, GenericImageView};
+use image::{Bgr, DynamicImage, GenericImageView, ImageBuffer, Rgb};
+
+use std::error::Error;
+use std::io::{Read, Write};
 
 mod spatial;
 
@@ -54,6 +58,47 @@ impl StImage {
         }
     }
 
+    pub fn read<S: Read>(reader: &mut S) -> Result<StImage, Box<dyn Error>> {
+        // read DynamicImage
+        let height = reader.read_u32::<BigEndian>()?;
+        let width = reader.read_u32::<BigEndian>()?;
+
+        let image = match reader.read_u8()? {
+            0 => {
+                let mut container = vec![0u8; (height * width * 3) as usize];
+                reader.read_exact(&mut container)?;
+
+                let image_buffer: ImageBuffer<Rgb<u8>, Vec<u8>> =
+                    ImageBuffer::from_raw(width, height, container).unwrap();
+                DynamicImage::ImageRgb8(image_buffer)
+            },
+            1 => {
+                let mut container = vec![0u8; (height * width * 3) as usize];
+                reader.read_exact(&mut container)?;
+
+                let image_buffer: ImageBuffer<Bgr<u8>, Vec<u8>> =
+                    ImageBuffer::from_raw(width, height, container).unwrap();
+                DynamicImage::ImageBgr8(image_buffer)
+            },
+            _ => unimplemented!(),
+        };
+
+        // read latitude and longitude bounds
+        let lat_min = reader.read_f64::<BigEndian>()?;
+        let lat_max = reader.read_f64::<BigEndian>()?;
+        let long_min = reader.read_f64::<BigEndian>()?;
+        let long_max = reader.read_f64::<BigEndian>()?;
+
+        // read precision
+        let precision = match reader.read_u8()? {
+            0 => None,
+            _ => Some(reader.read_u8()? as usize),
+        };
+
+        Ok(StImage::new(image, lat_min, lat_max,
+            long_min, long_max, precision))
+    }
+
     pub fn split(&mut self, precision: usize) -> Vec<StImage> {
         // compute geohash coordinate bounds
         let bounds = spatial::get_coordinate_bounds(self.lat_min,
@@ -86,6 +131,81 @@ impl StImage {
 
         st_images
     }
+
+    pub fn write<S: Write>(&self, writer: &mut S)
+            -> Result<(), Box<dyn Error>> {
+        // write DynamicImage
+        writer.write_u32::<BigEndian>(self.image.height())?;
+        writer.write_u32::<BigEndian>(self.image.width())?;
+
+        match &self.image {
+            DynamicImage::ImageLuma8(_image) => {
+                println!("TODO - implement ImageLuma8");
+                unimplemented!();
+            },
+            DynamicImage::ImageLumaA8(_image) => {
+                println!("TODO - implement ImageLumaA8");
+                unimplemented!();
+            },
+            DynamicImage::ImageRgb8(image) => {
+                writer.write_u8(0)?;
+                for pixel in image.pixels() {
+                    writer.write_u8(pixel[0])?;
+                    writer.write_u8(pixel[1])?;
+                    writer.write_u8(pixel[2])?;
+                }
+            },
+            DynamicImage::ImageRgba8(_image) => {
+                println!("TODO - implement ImageRgba8");
+                unimplemented!();
+            },
+            DynamicImage::ImageBgr8(image) => {
+                writer.write_u8(1)?;
+                for pixel in image.pixels() {
+                    writer.write_u8(pixel[0])?;
+                    writer.write_u8(pixel[1])?;
+                    writer.write_u8(pixel[2])?;
+                }
+            },
+            DynamicImage::ImageBgra8(_image) => {
+                println!("TODO - implement ImageBgra8");
+                unimplemented!();
+            },
+            DynamicImage::ImageLuma16(_image) => {
+                println!("TODO - implement ImageLuma16");
+                unimplemented!();
+            },
+            DynamicImage::ImageLumaA16(_image) => {
+                println!("TODO - implement ImageLumaA16");
+                unimplemented!();
+            },
+            DynamicImage::ImageRgb16(_image) => {
+                println!("TODO - implement ImageRgb16");
+                unimplemented!();
+            },
+            DynamicImage::ImageRgba16(_image) => {
+                println!("TODO - implement ImageRgba16");
+                unimplemented!();
+            },
+        }
+
+        // write latitude and longitude bounds
+        writer.write_f64::<BigEndian>(self.lat_min)?;
+        writer.write_f64::<BigEndian>(self.lat_max)?;
+        writer.write_f64::<BigEndian>(self.long_min)?;
+        writer.write_f64::<BigEndian>(self.long_max)?;
+
+        // write precision
+        match self.precision {
+            Some(precision) => {
+                writer.write_u8(1)?;
+                writer.write_u8(precision as u8)?;
+            },
+            None => writer.write_u8(0)?,
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -93,8 +213,8 @@ mod tests {
     use image::{self, ImageFormat};
     use super::StImage;
 
-    #[test]
-    fn images() {
+    /*#[test]
+    fn image_split() {
         // read jpg image
         let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
         //let image = match image::open("examples/L1C_T13TDE_A022303_20190929T175231-0.png").unwrap();
@@ -102,12 +222,41 @@ mod tests {
         let mut raw_image = StImage::new(image,
             39.41291, 41.34748, -106.61415, -103.92836, None);
         for st_image in raw_image.split(4) {
-            println!("{:?} - {:?}", st_image.geohash(),
-                st_image.geohash_coverage());
+            // TODO - how to test?
+            //println!("{:?} - {:?}", st_image.geohash(),
+            //    st_image.geohash_coverage());
 
             // write image
             //st_image.image.save_with_format(format!("examples/{}{}.png",
             //    st_image.lat_min, st_image.long_min), ImageFormat::Png);
         }
+    }*/
+
+    #[test]
+    fn image_transfer() {
+        let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
+
+        let lat_min = 39.41291;
+        let lat_max = 41.34748;
+        let long_min = -106.61415;
+        let long_max = -103.92836;
+        let precision = None;
+
+        let mut raw_image = StImage::new(image,
+            lat_min, lat_max, long_min, long_max, precision);
+        
+        // write raw image to vector
+        let mut vec = Vec::new();
+        raw_image.write(&mut vec).expect("write image");
+
+        // read new image from vector
+        let mut cursor = std::io::Cursor::new(vec);
+        let decoded_image = StImage::read(&mut cursor).expect("read image");
+
+        assert_eq!(lat_min, decoded_image.lat_min);
+        assert_eq!(lat_max, decoded_image.lat_max);
+        assert_eq!(long_min, decoded_image.long_min);
+        assert_eq!(long_max, decoded_image.long_max);
+        assert_eq!(precision, decoded_image.precision);
     }
 }
