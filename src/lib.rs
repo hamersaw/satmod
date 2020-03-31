@@ -30,6 +30,10 @@ impl StImage {
         }
     }
 
+    pub fn get_image(&self) -> &DynamicImage {
+        &self.image
+    }
+
     pub fn geohash(&self) -> Option<String> {
         match self.precision {
             None => None,
@@ -58,7 +62,18 @@ impl StImage {
         }
     }
 
-    pub fn read<S: Read>(reader: &mut S) -> Result<StImage, Box<dyn Error>> {
+    pub fn read<S: Read>(reader: &mut S)
+            -> Result<StImage, Box<dyn Error>> {
+        let (lat_min, lat_max, long_min, long_max, precision) =
+            StImage::read_metadata(reader)?;
+        let image = StImage::read_image(reader)?;
+
+        Ok(StImage::new(image, lat_min, lat_max,
+            long_min, long_max, precision))
+    }
+
+    pub fn read_image<S: Read>(reader: &mut S)
+            -> Result<DynamicImage, Box<dyn Error>> {
         // read DynamicImage
         let height = reader.read_u32::<BigEndian>()?;
         let width = reader.read_u32::<BigEndian>()?;
@@ -83,6 +98,11 @@ impl StImage {
             _ => unimplemented!(),
         };
 
+        Ok(image)
+    }
+
+    pub fn read_metadata<S: Read>(reader: &mut S)
+            -> Result<(f64, f64, f64, f64, Option<usize>), Box<dyn Error>> {
         // read latitude and longitude bounds
         let lat_min = reader.read_f64::<BigEndian>()?;
         let lat_max = reader.read_f64::<BigEndian>()?;
@@ -95,8 +115,7 @@ impl StImage {
             _ => Some(reader.read_u8()? as usize),
         };
 
-        Ok(StImage::new(image, lat_min, lat_max,
-            long_min, long_max, precision))
+        Ok((lat_min, lat_max, long_min, long_max, precision))
     }
 
     pub fn split(&mut self, precision: usize) -> Vec<StImage> {
@@ -134,10 +153,18 @@ impl StImage {
 
     pub fn write<S: Write>(&self, writer: &mut S)
             -> Result<(), Box<dyn Error>> {
-        // write DynamicImage
+        self.write_metadata(writer)?;
+        self.write_image(writer)?;
+        Ok(())
+    }
+
+    pub fn write_image<S: Write>(&self, writer: &mut S)
+            -> Result<(), Box<dyn Error>> {
+        // write dimensions
         writer.write_u32::<BigEndian>(self.image.height())?;
         writer.write_u32::<BigEndian>(self.image.width())?;
 
+        // write image
         match &self.image {
             DynamicImage::ImageLuma8(_image) => {
                 println!("TODO - implement ImageLuma8");
@@ -189,6 +216,11 @@ impl StImage {
             },
         }
 
+        Ok(())
+    }
+
+    pub fn write_metadata<S: Write>(&self, writer: &mut S)
+            -> Result<(), Box<dyn Error>> {
         // write latitude and longitude bounds
         writer.write_f64::<BigEndian>(self.lat_min)?;
         writer.write_f64::<BigEndian>(self.lat_max)?;
@@ -210,7 +242,7 @@ impl StImage {
 
 #[cfg(test)]
 mod tests {
-    use image::{self, ImageFormat};
+    use image::{self, GenericImageView};
     use super::StImage;
 
     /*#[test]
@@ -236,27 +268,47 @@ mod tests {
     fn image_transfer() {
         let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
 
+        let st_image = StImage::new(image,
+            39.41291, 41.34748, -106.61415, -103.92836, None);
+        
+        // write raw image to vector
+        let mut vec = Vec::new();
+        st_image.write_image(&mut vec).expect("write image");
+
+        // read new image from vector
+        let mut cursor = std::io::Cursor::new(vec);
+        let image = StImage::read_image(&mut cursor).expect("read image");
+
+        assert_eq!(st_image.image.width(), image.width());
+        assert_eq!(st_image.image.height(), image.height());
+    }
+
+    #[test]
+    fn metadata_transfer() {
+        let image = image::open("examples/LM01_L1GS_036032_19730622_20180428_01_T2.jpg").unwrap();
+
         let lat_min = 39.41291;
         let lat_max = 41.34748;
         let long_min = -106.61415;
         let long_max = -103.92836;
         let precision = None;
 
-        let mut raw_image = StImage::new(image,
+        let st_image = StImage::new(image,
             lat_min, lat_max, long_min, long_max, precision);
         
         // write raw image to vector
         let mut vec = Vec::new();
-        raw_image.write(&mut vec).expect("write image");
+        st_image.write_metadata(&mut vec).expect("write metadata");
 
         // read new image from vector
         let mut cursor = std::io::Cursor::new(vec);
-        let decoded_image = StImage::read(&mut cursor).expect("read image");
+        let (dlat_min, dlat_max, dlong_min, dlong_max, dprecision) =
+            StImage::read_metadata(&mut cursor).expect("read metadata");
 
-        assert_eq!(lat_min, decoded_image.lat_min);
-        assert_eq!(lat_max, decoded_image.lat_max);
-        assert_eq!(long_min, decoded_image.long_min);
-        assert_eq!(long_max, decoded_image.long_max);
-        assert_eq!(precision, decoded_image.precision);
+        assert_eq!(lat_min, dlat_min);
+        assert_eq!(lat_max, dlat_max);
+        assert_eq!(long_min, dlong_min);
+        assert_eq!(long_max, dlong_max);
+        assert_eq!(precision, dprecision);
     }
 }
