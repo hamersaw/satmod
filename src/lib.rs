@@ -30,6 +30,82 @@ impl StImage {
         }
     }
 
+    pub fn coverage(&self) -> Option<f64> {
+        match self.coverage_spatial() {
+            Some(coverage_spatial) => 
+                Some(coverage_spatial * self.coverage_pixel()),
+            None => None,
+        }
+    }
+
+    pub fn coverage_pixel(&self) -> f64 {
+        // write image
+        let valid_pixels = match &self.image {
+            DynamicImage::ImageLuma8(_image) => {
+                println!("TODO - implement ImageLuma8");
+                unimplemented!();
+            },
+            DynamicImage::ImageLumaA8(_image) => {
+                println!("TODO - implement ImageLumaA8");
+                unimplemented!();
+            },
+            DynamicImage::ImageRgb8(image) => {
+                let black = Rgb([255u8, 255u8, 255u8]);
+                let white = Rgb([255u8, 255u8, 255u8]);
+
+                image.pixels().filter(|&x| {
+                    x.ne(&black) && x.ne(&white)
+                }).count()
+            },
+            DynamicImage::ImageRgba8(_image) => {
+                println!("TODO - implement ImageRgba8");
+                unimplemented!();
+            },
+            DynamicImage::ImageBgr8(_image) => {
+                println!("TODO - implement ImageBgr8");
+                unimplemented!();
+            },
+            DynamicImage::ImageBgra8(_image) => {
+                println!("TODO - implement ImageBgra8");
+                unimplemented!();
+            },
+            DynamicImage::ImageLuma16(_image) => {
+                println!("TODO - implement ImageLuma16");
+                unimplemented!();
+            },
+            DynamicImage::ImageLumaA16(_image) => {
+                println!("TODO - implement ImageLumaA16");
+                unimplemented!();
+            },
+            DynamicImage::ImageRgb16(_image) => {
+                println!("TODO - implement ImageRgb16");
+                unimplemented!();
+            },
+            DynamicImage::ImageRgba16(_image) => {
+                println!("TODO - implement ImageRgba16");
+                unimplemented!();
+            },
+        };
+
+        valid_pixels as f64 /
+            (self.image.width() * self.image.height()) as f64
+    }
+
+    pub fn coverage_spatial(&self) -> Option<f64> {
+        match self.precision {
+            None => None,
+            Some(_) => {
+                let geohash = self.geohash().unwrap();
+                let rect = geohash::decode_bbox(&geohash).unwrap();
+                let coverage = ((self.long_max - self.long_min)
+                    * (self.lat_max - self.lat_min))
+                    / (rect.width() * rect.height());
+
+                Some(coverage)
+            }
+        }
+    }
+
     pub fn get_image(&self) -> &DynamicImage {
         &self.image
     }
@@ -43,22 +119,6 @@ impl StImage {
 
                 Some(geohash.unwrap())
             },
-        }
-    }
-
-    pub fn geohash_coverage(&self) -> Option<f64> {
-        match self.precision {
-            None => None,
-            Some(_) => {
-                let geohash = self.geohash().unwrap();
-                let rect = geohash::decode_bbox(&geohash).unwrap();
-                // TODO - subtract black or white pixels
-                let coverage = ((self.long_max - self.long_min)
-                    * (self.lat_max - self.lat_min))
-                    / (rect.width() * rect.height());
-
-                Some(coverage)
-            }
         }
     }
 
@@ -255,8 +315,7 @@ mod tests {
             39.41291, 41.34748, -106.61415, -103.92836, None);
         for st_image in raw_image.split(4) {
             // TODO - how to test?
-            //println!("{:?} - {:?}", st_image.geohash(),
-            //    st_image.geohash_coverage());
+            //println!("{:?} - {:?}", st_image.geohash(), st_image.coverage());
 
             // write image
             //st_image.image.save_with_format(format!("examples/{}{}.png",

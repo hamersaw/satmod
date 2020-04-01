@@ -15,7 +15,7 @@ A utility library to manage spatiotemporal images.
     // split image into length 'precision' geohashes
     for st_image in image.split(precision) {
         // check if st_image covers a full geohash
-        if st_image.geohash_coverage() != 1.0 {
+        if st_image.coverage_spatial() != 1.0 {
             continue;
         }
 
