@@ -28,17 +28,7 @@ pub fn get_coordinate_bounds(lat_min: f64, lat_max: f64, long_min: f64,
         for long_index in long_min_index..long_max_index {
             let long_index = long_index as f64;
 
-            // TODO - remove code
             // calculate subimage bounds
-            /*let bound_lat_min =
-                (lat_index * lat_delta).max(lat_min);
-            let bound_lat_max =
-                ((lat_index + 1.0) * lat_delta).min(lat_max);
-
-            let bound_long_min =
-                (long_index * long_delta).max(long_min);
-            let bound_long_max =
-                ((long_index + 1.0) * long_delta).min(long_max);*/
             let bound_lat_min = lat_index * lat_delta;
             let bound_lat_max = (lat_index + 1.0) * lat_delta;
 
