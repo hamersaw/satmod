@@ -2,11 +2,9 @@
 use gdal::raster::{Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 use geohash::{self, Coordinate};
-//use image::{Bgr, DynamicImage, GenericImageView, ImageBuffer, Rgb};
 
 use std::error::Error;
 use std::path::Path;
-//use std::io::{Read, Write};
 
 mod spatial;
 
@@ -14,8 +12,8 @@ pub fn split(dataset: &Dataset, precision: usize)
         -> Result<Vec<(String, Dataset)>, Box<dyn Error>> {
     // compute minimum and maximum latitude and longitude
     let (width, height) = dataset.size();
-    let w = width as f64;
-    let h = height as f64;
+    let src_width = width as f64;
+    let src_height = height as f64;
 
     let transform = dataset.geo_transform().unwrap(); // TODO - error
 
@@ -27,15 +25,19 @@ pub fn split(dataset: &Dataset, precision: usize)
     zs.push(0.0);
 
     xs.push(transform[0]); 
-    ys.push(transform[3] + (w * transform[4]) + (h * transform[5])); 
+    ys.push(transform[3] + (src_width * transform[4]) 
+        + (src_height * transform[5])); 
     zs.push(0.0);
 
-    xs.push(transform[0] + (w * transform[1]) + (h * transform[2])); 
+    xs.push(transform[0] + (src_width * transform[1])
+        + (src_height * transform[2])); 
     ys.push(transform[3]); 
     zs.push(0.0);
 
-    xs.push(transform[0] + (w * transform[1]) + (h * transform[2])); 
-    ys.push(transform[3] + (w * transform[4]) + (h * transform[5])); 
+    xs.push(transform[0] + (src_width * transform[1])
+        + (src_height * transform[2])); 
+    ys.push(transform[3] + (src_width * transform[4]) 
+        + (src_height * transform[5])); 
     zs.push(0.0);
 
     let src_spatial_ref = SpatialRef::from_wkt(&dataset.projection()).unwrap();
@@ -56,8 +58,8 @@ pub fn split(dataset: &Dataset, precision: usize)
     let bounds = spatial::get_coordinate_bounds(lat_min,
         lat_max, long_min, long_max, precision);
 
-    // open gtiff driver
-    let driver = match Driver::get("GTIFF") {
+    // open memory driver
+    let driver = match Driver::get("Mem") {
         Ok(driver) => driver,
         Err(e) => panic!("failed to get driver: {}", e),
     };
@@ -69,11 +71,15 @@ pub fn split(dataset: &Dataset, precision: usize)
     let mut st_images = Vec::new();
     for (i, bound) in bounds.iter().enumerate() {
         // compute pixels for subimage
-        let min_y = (((bound.0 - lat_min) / lat_range) * h).ceil() as i32;
-        let max_y = (((bound.1 - lat_min) / lat_range) * h).floor() as i32;
+        let min_y = (((bound.0 - lat_min) / lat_range) * src_height)
+            .ceil() as i32;
+        let max_y = (((bound.1 - lat_min) / lat_range) * src_height)
+            .floor() as i32;
 
-        let min_x = (((bound.2 - long_min) / long_range) * w).ceil() as i32;
-        let max_x = (((bound.3 - long_min) / long_range) * w).floor() as i32;
+        let min_x = (((bound.2 - long_min) / long_range) * src_width)
+            .ceil() as i32;
+        let max_x = (((bound.3 - long_min) / long_range) * src_width)
+            .floor() as i32;
 
         // compute geohash
         let coordinate = Coordinate{x: bound.3, y: bound.1};
@@ -83,41 +89,51 @@ pub fn split(dataset: &Dataset, precision: usize)
         //println!("{} {} {} {} {:?}", min_x, max_x, min_y, max_y, geohash);
 
         // compute image size
-        let x_offset = min_x.max(0) as isize;
-        let y_offset = min_y.max(0) as isize;
-        let width = (max_x.min(width as i32) - min_x.max(0)) as usize;
-        let height = (max_y.min(height as i32) - min_y.max(0)) as usize;
+        let src_x_offset = min_x.max(0) as isize;
+        let src_y_offset = min_y.max(0) as isize;
+
+        let buf_width = (max_x.min(src_width as i32) 
+            - min_x.max(0)) as usize;
+        let buf_height = (max_y.min(src_height as i32)
+            - min_y.max(0)) as usize;
+
+        let dst_x_offset = (0 - min_x).max(0) as isize;
+        let dst_y_offset = (0 - min_y).max(0) as isize;
+
+        let dst_width = (max_x - min_x) as isize;
+        let dst_height = (max_y - min_y) as isize;
 
         //println!("{} {}", width, height)
 
-        // TODO - initialize new dataset
+        // initialize new dataset
         let path = format!("/tmp/{}", geohash);
-        let output_dataset = match driver.create(&path, width as isize,
-                height as isize, dataset.count(), None) {
+        let output_dataset = match driver.create(&path, dst_width,
+                dst_height, dataset.count(), None) {
                 //dataset.count(), Some(vec!["COMPRESS=LZW", "PREDICTOR=2"])) {
             Ok(output_dataset) => output_dataset,
             Err(e) => panic!("failed to create dataset: {}", e),
         };
 
-        // TODO copy rasterband data to new image
-
+        // copy rasterband data to new image
         for i in 0..dataset.count() {
             let rasterband = match dataset.rasterband(i + 1) {
                 Ok(rasterband) => rasterband,
                 Err(e) => panic!("failed to retrieve raster band: {}", e),
             };
 
-            let buffer = match rasterband.read_as::<u8>((x_offset, y_offset),
-                    (width, height), (width, height)) {
+            let buffer = match rasterband.read_as::<u8>((src_x_offset, 
+                    src_y_offset), (buf_width, buf_height), (buf_width, buf_height)) {
                 Ok(buffer) => buffer,
                 Err(e) => panic!("failed to read rasterband {}: {}", i, e),
             };
 
             if let Err(e) = output_dataset.write_raster(i+1,
-                    (0, 0), (width, height), &buffer) {
+                    (dst_x_offset, dst_y_offset), (buf_width, buf_height), &buffer) {
                 panic!("failed to write rasterband {}: {}", i, e);
             }
         }
+
+        st_images.push((geohash, output_dataset))
     }
 
     Ok(st_images)
@@ -418,7 +434,7 @@ impl StImage {
 
 #[cfg(test)]
 mod tests {
-    use gdal::raster::Dataset;
+    use gdal::raster::{Dataset, Driver};
     use std::path::Path;
 
     #[test]
@@ -429,6 +445,10 @@ mod tests {
         let dataset = Dataset::open(path).expect("dataset open");
 
         let _ = super::split(&dataset, 4);
+        /*let driver = match Driver::get("GTiff") {
+            Ok(driver) => driver,
+            Err(e) => panic!("failed to get driver: {}", e),
+        };*/
     }
     //use image::{self, GenericImageView};
     //use super::StImage;
