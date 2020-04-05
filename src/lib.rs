@@ -1,7 +1,10 @@
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use gdal::errors::Error;
-use gdal::raster::{Dataset, Driver};
+use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 use geohash::{self, Coordinate};
+
+use std::io::{Read, Write};
 
 mod spatial;
 
@@ -31,6 +34,51 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
         .filter(|x| **x).count() as f64;
 
     Ok((pixel_count - invalid_count) / pixel_count)
+}
+
+pub fn read<T: Read>(reader: &mut T)
+        -> Result<Dataset, Box<dyn std::error::Error>> {
+    // read image dimensions
+    let width = reader.read_u32::<BigEndian>()? as isize;
+    let height = reader.read_u32::<BigEndian>()? as isize;
+
+    // read geo transform
+    let mut transform = [0.0f64; 6];
+    for i in 0..transform.len() {
+        transform[i] = reader.read_f64::<BigEndian>()?;
+    }
+ 
+    // read projection
+    let projection_len = reader.read_u32::<BigEndian>()?;
+    let mut projection_buf = vec![0u8; projection_len as usize];
+    reader.read_exact(&mut projection_buf)?;
+    let projection = String::from_utf8(projection_buf)?;
+ 
+    // read rasterband count
+    let rasterband_count = reader.read_u8()? as isize;
+
+    // initialize dataset - TODO error
+    let driver = Driver::get("Mem").unwrap();
+    let dataset = driver.create("unreachable",
+        width, height, rasterband_count).unwrap();
+
+    dataset.set_geo_transform(&transform).unwrap();
+    dataset.set_projection(&projection).unwrap();
+ 
+    // read rasterbands
+    let size = (width * height) as usize;
+    for i in 0..rasterband_count {
+        // read rasterband data
+        let mut data = vec![0u8; size];
+        reader.read_exact(&mut data)?;
+
+        // write raster to dataset - TODO error
+        let buffer = Buffer::new((width as usize, height as usize), data);
+        dataset.write_raster(i+1, (0, 0), (width as usize,
+            height as usize), &buffer).unwrap();
+    }
+
+    Ok(dataset)
 }
 
 pub fn split(dataset: &Dataset, precision: usize)
@@ -123,8 +171,8 @@ pub fn split(dataset: &Dataset, precision: usize)
 
         // initialize new dataset
         let path = format!("/tmp/{}", geohash);
-        let output_dataset = driver.create(&path, dst_width,
-            dst_height, dataset.count(), None)?;
+        let output_dataset = driver.create(&path,
+            dst_width, dst_height, dataset.count())?;
 
         // copy rasterband data to new image
         for i in 0..dataset.count() {
@@ -146,9 +194,43 @@ pub fn split(dataset: &Dataset, precision: usize)
     Ok(st_images)
 }
 
+pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
+        -> Result<(), Box<dyn std::error::Error>> {
+    // write image dimensions
+    let (width, height) = dataset.size();
+    writer.write_u32::<BigEndian>(width as u32)?;
+    writer.write_u32::<BigEndian>(height as u32)?;
+
+    // write geo transform - TODO error
+    let transform = dataset.geo_transform().unwrap();
+    for val in transform.iter() {
+        writer.write_f64::<BigEndian>(*val)?;
+    }
+
+    // write projection
+    let projection = dataset.projection();
+    writer.write_u32::<BigEndian>(projection.len() as u32)?;
+    writer.write(projection.as_bytes())?;
+
+    // write rasterbands
+    writer.write_u8(dataset.count() as u8)?;
+    for i in 0..dataset.count() {
+        // TODO - error
+        let rasterband =
+            dataset.read_full_raster_as::<u8>(i + 1).unwrap();
+        let data = rasterband.data;
+
+        writer.write(&data)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use gdal::raster::{Dataset, Driver};
+
+    use std::io::Cursor;
     use std::path::Path;
 
     #[test]
@@ -171,5 +253,27 @@ mod tests {
             dataset.create_copy(&driver, &format!("/tmp/{}", geohash))
                 .expect("dataset copy");
         }
+    }
+
+    #[test]
+    fn transfer() {
+        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+
+        // read dataset
+        let dataset = Dataset::open(path).expect("dataset open");
+
+        // write dataset to buffer
+        let mut buffer = Vec::new();
+        super::write(&dataset, &mut buffer).expect("dataset write");
+
+        // read dataset from buffer
+        let mut cursor = Cursor::new(buffer);
+        let read_dataset = super::read(&mut cursor)
+            .expect("dataset read");
+
+        // open gtiff driver
+        let driver = Driver::get("GTiff").expect("get driver");
+        read_dataset.create_copy(&driver, "/tmp/st-image-transfer")
+            .expect("dataset copy");
     }
 }
