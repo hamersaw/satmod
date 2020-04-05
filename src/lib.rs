@@ -174,6 +174,9 @@ pub fn split(dataset: &Dataset, precision: usize)
         let output_dataset = driver.create(&path,
             dst_width, dst_height, dataset.count())?;
 
+        output_dataset.set_geo_transform(&dataset.geo_transform()?)?;
+        output_dataset.set_projection(&dataset.projection())?;
+
         // copy rasterband data to new image
         for i in 0..dataset.count() {
             let rasterband = dataset.rasterband(i + 1)?;
