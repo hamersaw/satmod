@@ -36,6 +36,33 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     Ok((pixel_count - invalid_count) / pixel_count)
 }
 
+pub fn fill(rasters: &mut Vec<Buffer<u8>>,
+        fill_rasters: &Vec<Buffer<u8>>)
+        -> Result<(), Box<dyn std::error::Error>> {
+    // iterate over pixels
+    let size = rasters[0].data.len();
+    for i in 0..size {
+        if fill_rasters[0].data.len() <= i {
+            break;
+        }
+
+        // check if rasterband pixel is valid
+        let mut valid = false;
+        for j in 0..rasters.len() {
+            valid = valid || rasters[j].data[i] != 0u8;
+        }
+
+        // copy pixels from fill_raster bands
+        if !valid {
+            for j in 0..rasters.len() {
+                rasters[j].data[i] = fill_rasters[j].data[i];
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub fn read<T: Read>(reader: &mut T)
         -> Result<Dataset, Box<dyn std::error::Error>> {
     // read image dimensions
