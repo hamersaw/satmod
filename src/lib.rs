@@ -121,24 +121,24 @@ pub fn split(dataset: &Dataset, precision: usize)
     let mut ys = Vec::new();
     let mut zs = Vec::new();
 
-    xs.push(transform[0]); 
-    ys.push(transform[3]); 
+    xs.push(transform[0]);
+    ys.push(transform[3]);
     zs.push(0.0);
 
     xs.push(transform[0]); 
-    ys.push(transform[3] + (src_width * transform[4]) 
-        + (src_height * transform[5])); 
+    ys.push(transform[3] + (src_width * transform[4])
+        + (src_height * transform[5]));
     zs.push(0.0);
 
     xs.push(transform[0] + (src_width * transform[1])
-        + (src_height * transform[2])); 
-    ys.push(transform[3]); 
+        + (src_height * transform[2]));
+    ys.push(transform[3]);
     zs.push(0.0);
 
     xs.push(transform[0] + (src_width * transform[1])
-        + (src_height * transform[2])); 
-    ys.push(transform[3] + (src_width * transform[4]) 
-        + (src_height * transform[5])); 
+        + (src_height * transform[2]));
+    ys.push(transform[3] + (src_width * transform[4])
+        + (src_height * transform[5]));
     zs.push(0.0);
 
     let src_spatial_ref = SpatialRef::from_wkt(&dataset.projection())?;
@@ -180,6 +180,7 @@ pub fn split(dataset: &Dataset, precision: usize)
         // compute geohash - TODO error
         let coordinate = Coordinate{x: bound.3, y: bound.1};
         let geohash = geohash::encode(coordinate, precision).unwrap();
+        println!("GEOHASH: {}", geohash);
 
         // compute image size
         let src_x_offset = min_x.max(0) as isize;
@@ -201,7 +202,24 @@ pub fn split(dataset: &Dataset, precision: usize)
         let output_dataset = driver.create(&path,
             dst_width, dst_height, dataset.count())?;
 
-        output_dataset.set_geo_transform(&dataset.geo_transform()?)?;
+        // modify transform
+        let mut transform = dataset.geo_transform()?;
+        transform[0] = transform[0] + (min_x as f64 * transform[1])
+            + (min_y as f64 * transform[2]);
+        transform[3] = transform[3] + (min_x as f64 * transform[4])
+            + (min_y as f64 * transform[5]);
+
+        // TODO - tmp
+        let ul_x = transform[0];
+        let ul_y = transform[3];
+
+        let lr_x = transform[0] + (dst_width as f64 * transform[1]);
+        let lr_y = transform[3] + (dst_height as f64 * transform[5]);
+
+        println!("  x: {} {}", ul_x, lr_x);
+        println!("  y: {} {}", lr_y, ul_y);
+
+        output_dataset.set_geo_transform(&transform)?;
         output_dataset.set_projection(&dataset.projection())?;
 
         // copy rasterband data to new image
@@ -277,7 +295,10 @@ mod tests {
         for (geohash, dataset) in 
                 super::split(&dataset, 4).expect("split dataset") {
 
-            println!("{} {:?}", geohash, super::coverage(&dataset));
+            /*for (geohash2, dataset2) in 
+                    super::split(&dataset, 4).expect("split dataset") {
+                
+            }*/
 
             // copy memory datasets to gtiff files
             dataset.create_copy(&driver, &format!("/tmp/{}", geohash))
