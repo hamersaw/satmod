@@ -109,7 +109,7 @@ pub fn read<T: Read>(reader: &mut T)
     Ok(dataset)
 }
 
-pub fn split(dataset: &Dataset, precision: usize)
+/*pub fn split(dataset: &Dataset, precision: usize)
         -> Result<Vec<(String, Dataset)>, Error> {
     // compute minimum and maximum latitude and longitude
     let (width, height) = dataset.size();
@@ -242,7 +242,7 @@ pub fn split(dataset: &Dataset, precision: usize)
     }
 
     Ok(st_images)
-}
+}*/
 
 pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
         -> Result<(), Box<dyn std::error::Error>> {

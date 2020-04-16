@@ -73,7 +73,7 @@ impl StCoordTransform {
     }
 }
 
-fn get_coordinate_deltas(precision: usize) -> (f64, f64) {
+/*fn get_coordinate_deltas(precision: usize) -> (f64, f64) {
     // calculate number of bits for latitude and longitude
     let lat_bits = (2 * precision) as f64 + (precision as f64 / 2.0).floor();
     let long_bits = (2 * precision) as f64 + (precision as f64 / 2.0).ceil();
@@ -117,6 +117,51 @@ pub fn get_coordinate_bounds(lat_min: f64, lat_max: f64, long_min: f64,
     }
 
     coordinate_bounds
+}*/
+
+fn get_geohash_intervals(precision: usize) -> (f64, f64) {
+    // calculate number of bits for latitude and longitude
+    let lat_bits = (2 * precision) as f64 + (precision as f64 / 2.0).floor();
+    let long_bits = (2 * precision) as f64 + (precision as f64 / 2.0).ceil();
+
+    // calculate deltas
+    let lat_delta = 180.0 / 2_u32.pow(lat_bits as u32) as f64;
+    let long_delta = 360.0 / 2_u32.pow(long_bits as u32) as f64;
+
+    (lat_delta, long_delta)
+}
+
+pub fn get_window_bounds(min_x: f64, max_x: f64, min_y: f64, max_y: f64,
+        x_interval: f64, y_interval: f64) -> Vec<(f64, f64, f64, f64)> {
+    // compute indices for minimum and maximum coordinates
+    let min_x_index = (min_x / x_interval).floor() as i32;
+    let max_x_index = (max_x / x_interval).ceil() as i32;
+
+    let min_y_index = (min_y / y_interval).floor() as i32;
+    let max_y_index = (max_y / y_interval).ceil() as i32;
+
+    // compute all window bounds
+    let mut window_bounds = Vec::new();
+    for x_index in min_x_index..max_x_index {
+        let x_index = x_index as f64;
+
+        for y_index in min_y_index..max_y_index {
+            let y_index = y_index as f64;
+
+            // compute window x and y bounds
+            let window_x_min = x_index * x_interval;
+            let window_x_max = (x_index + 1.0) * x_interval;
+
+            let window_y_min = y_index * y_interval;
+            let window_y_max = (y_index + 1.0) * y_interval;
+
+            // add to window bounds
+            window_bounds.push((window_x_min,
+                window_x_max, window_y_min, window_y_max));
+        }
+    }
+
+    window_bounds
 }
 
 #[cfg(test)]
