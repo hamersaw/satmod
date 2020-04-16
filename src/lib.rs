@@ -6,6 +6,8 @@ use geohash::{self, Coordinate};
 
 use std::io::{Read, Write};
 
+mod coordinate;
+pub mod prelude;
 mod spatial;
 
 pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
@@ -141,6 +143,7 @@ pub fn split(dataset: &Dataset, precision: usize)
         + (src_height * transform[5]));
     zs.push(0.0);
 
+    println!("{:?} {}", transform, dataset.projection());
     let src_spatial_ref = SpatialRef::from_wkt(&dataset.projection())?;
     let dst_spatial_ref = SpatialRef::from_epsg(4326)?;
     let coord_transform = 
@@ -276,7 +279,7 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
 
 #[cfg(test)]
 mod tests {
-    use gdal::raster::{Dataset, Driver};
+    /*use gdal::raster::{Dataset, Driver};
 
     use std::io::Cursor;
     use std::path::Path;
@@ -304,9 +307,9 @@ mod tests {
             dataset.create_copy(&driver, &format!("/tmp/{}", geohash))
                 .expect("dataset copy");
         }
-    }
+    }*/
 
-    #[test]
+    /*#[test]
     fn transfer() {
         let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
 
@@ -326,5 +329,5 @@ mod tests {
         let driver = Driver::get("GTiff").expect("get driver");
         read_dataset.create_copy(&driver, "/tmp/st-image-transfer")
             .expect("dataset copy");
-    }
+    }*/
 }
