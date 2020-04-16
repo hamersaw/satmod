@@ -8,7 +8,6 @@ use std::io::{Read, Write};
 
 mod coordinate;
 pub mod prelude;
-mod spatial;
 
 pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     let (width, height) = dataset.size();
@@ -160,7 +159,7 @@ pub fn split(dataset: &Dataset, precision: usize)
     let long_range = long_max - long_min;
 
     // compute geohash coordinate bounds
-    let bounds = spatial::get_coordinate_bounds(lat_min,
+    let bounds = coordinate::get_coordinate_bounds(lat_min,
         lat_max, long_min, long_max, precision);
 
     // open memory driver
