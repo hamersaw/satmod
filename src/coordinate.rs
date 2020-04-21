@@ -57,7 +57,7 @@ pub fn transform_pixel(x: isize, y: isize, z: isize,
     transform_coord(x_coord, y_coord, z as f64, coord_transform)
 }
 
-pub fn transform_pixels(pixels: &Vec<(usize, usize, usize)>,
+pub fn transform_pixels(pixels: &Vec<(isize, isize, isize)>,
         transform: &[f64; 6], coord_transform: &CoordTransform)
         -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Error> {
     // convert pixels to coordinates
