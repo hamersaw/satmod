@@ -46,15 +46,15 @@ pub fn get_window_bounds(min_x: f64, max_x: f64, min_y: f64, max_y: f64,
     window_bounds
 }
 
-pub fn transform_pixel(x: f64, y: f64, z: f64,
+pub fn transform_pixel(x: isize, y: isize, z: isize,
         transform: &[f64; 6], coord_transform: &CoordTransform)
         -> Result<(f64, f64, f64), Error> {
-    let x_coord = transform[0] + (x * transform[1])
-        + (y * transform[2]);
-    let y_coord = transform[3] + (x * transform[4])
-        + (y * transform[5]);
+    let x_coord = transform[0] + (x as f64 * transform[1])
+        + (y as f64 * transform[2]);
+    let y_coord = transform[3] + (x as f64 * transform[4])
+        + (y as f64 * transform[5]);
 
-    transform_coord(x_coord, y_coord, z, coord_transform)
+    transform_coord(x_coord, y_coord, z as f64, coord_transform)
 }
 
 pub fn transform_pixels(pixels: &Vec<(usize, usize, usize)>,
@@ -96,12 +96,12 @@ pub fn transform_coord(x: f64, y: f64, z: f64,
 
 #[cfg(test)]
 mod tests {
-    use gdal::raster::{Dataset, Driver};
+    use gdal::raster::Dataset;
     use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
     use std::path::Path;
 
-    /*#[test]
+    #[test]
     fn transform_pixel() {
         // read dataset
         let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
@@ -119,6 +119,7 @@ mod tests {
 
         // transform corner pixels
         let (width, height) = dataset.size();
+        let (width, height) = (width as isize, height as isize);
         assert_eq!(super::transform_pixel(0, 0, 0, &transform,
                 &coord_transform).expect("ul pixel transform"),
             (-106.1831726065988, 40.644794803779625, 0.0));
@@ -134,7 +135,7 @@ mod tests {
         assert_eq!(super::transform_pixel(width, height, 0, &transform,
                 &coord_transform).expect("lr pixel transform"),
             (-104.8862200854741, 39.66155122695049, 0.0));
-    }*/
+    }
 
     #[test]
     fn get_geohash_intervals() {

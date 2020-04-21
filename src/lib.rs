@@ -2,11 +2,11 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use gdal::errors::Error;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
-use geohash::{self, Coordinate};
 
 use std::io::{Read, Write};
 
 pub mod coordinate;
+mod test;
 
 pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     let (width, height) = dataset.size();
@@ -108,7 +108,7 @@ pub fn read<T: Read>(reader: &mut T)
     Ok(dataset)
 }
 
-pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
+/*pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
         y_interval: f64) -> Result<Vec<Dataset>, Error> {
     // initialize transform array and CoordTransform's from dataset
     let transform = dataset.geo_transform()?;
@@ -148,11 +148,11 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
 
         // TODO - determine min and max search x and y values
         //  necessary to include 'null' pixels in spatially split image
-        let search_min_x = 0 - (src_width as i32 / 2);
-        let search_max_x = src_width as i32 + (src_width as i32 / 2);
+        let search_min_x = 0 - (src_width as isize / 2);
+        let search_max_x = src_width as isize + (src_width as isize / 2);
 
-        let search_min_y = 0 - (src_height as i32/ 2);
-        let search_max_y = src_height as i32 + (src_height as i32 / 2);
+        let search_min_y = 0 - (src_height as isize/ 2);
+        let search_max_y = src_height as isize + (src_height as isize / 2);
 
         // identify pixels which fall into window bounds
         let mut indices = Vec::new();
@@ -160,12 +160,12 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
         for i in search_min_x..search_max_x {
             // check if column contains any valid pixels
             let (lower_col_x, lower_col_y, _) = 
-                coordinate::transform_pixel(i as f64, search_min_y as f64,
-                    0.0, &transform, &coord_transform)?;
+                coordinate::transform_pixel(i, search_min_y,
+                    0, &transform, &coord_transform)?;
 
             let (upper_col_x, upper_col_y, _) = 
-                coordinate::transform_pixel(i as f64, search_max_y as f64,
-                    0.0, &transform, &coord_transform)?;
+                coordinate::transform_pixel(i, search_max_y,
+                    0, &transform, &coord_transform)?;
 
             let col_min_x = lower_col_x.min(upper_col_x);
             let col_max_x = lower_col_x.max(upper_col_x);
@@ -184,8 +184,8 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
                         break;
                     }
 
-                    let (_, y, _) = coordinate::transform_pixel(i as f64,
-                        mid_index, 0.0, &transform, &coord_transform)?;
+                    let (_, y, _) = coordinate::transform_pixel(i,
+                        mid_index as isize, 0, &transform, &coord_transform)?;
 
                     if &y <= win_min_y {
                         tmp_min_index = mid_index;
@@ -203,8 +203,8 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
                         break;
                     }
 
-                    let (_, y, _) = coordinate::transform_pixel(i as f64,
-                        mid_index, 0.0, &transform, &coord_transform)?;
+                    let (_, y, _) = coordinate::transform_pixel(i,
+                        mid_index as isize, 0, &transform, &coord_transform)?;
 
                     if &y <= win_max_y {
                         min_index = mid_index;
@@ -214,30 +214,9 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
                 }
 
                 // add column range to indices
-                indices.push((i, min_index as i32, max_index as i32));
+                indices.push((i, min_index as isize, max_index as isize));
             }
         }
-
-        // TODO - tmp
-        //println!("  contains {} column(s)", indices.len());
-
-        /*let (lx, lystart, lyend) = indices[0];
-        let (ul_x, ul_y, _) = coordinate::transform_pixel(lx as f64,
-            lystart as f64, 0.0, &transform, &coord_transform)?;
-        let (ll_x, ll_y, _) = coordinate::transform_pixel(lx as f64,
-            lyend as f64, 0.0, &transform, &coord_transform)?;
-
-        let (rx, rystart, ryend) = indices[indices.len() - 1];
-        let (ur_x, ur_y, _) = coordinate::transform_pixel(rx as f64,
-            rystart as f64, 0.0, &transform, &coord_transform)?;
-        let (lr_x, lr_y, _) = coordinate::transform_pixel(rx as f64,
-            ryend as f64, 0.0, &transform, &coord_transform)?;
-
-        let min_x = ul_x.min(ll_x).min(ur_x).min(lr_x);
-        let max_x = ul_x.max(ll_x).max(ur_x).max(lr_x);
-
-        let min_y = ul_y.min(ll_y).min(ur_y).min(lr_y);
-        let max_y = ul_y.max(ll_y).max(ur_y).max(lr_y);*/
 
         // find split image width and height (in pixels)
         let split_min_x = indices[0].0;
@@ -255,9 +234,9 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
         let src_x_offset = split_min_x.max(0) as isize;
         let src_y_offset = split_min_y.max(0) as isize;
 
-        let buf_width = (split_max_x.min(src_width as i32) 
+        let buf_width = (split_max_x.min(src_width as isize) 
             - split_min_x.max(0)) as usize;
-        let buf_height = (split_max_y.min(src_height as i32)
+        let buf_height = (split_max_y.min(src_height as isize)
             - split_min_y.max(0)) as usize;
 
         let dst_x_offset = (0 - split_min_x).max(0) as isize;
@@ -266,9 +245,13 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
         let dst_width = (split_max_x - split_min_x) as isize;
         let dst_height = (split_max_y - split_min_y) as isize;
 
-        println!("  DIMENSIONS: {} {}", dst_width, dst_height);
+        //println!("  SRC OFFSET: {} {}", src_x_offset, src_y_offset);
+        //println!("  BUF DIMENSIONS: {} {}", buf_width, buf_height);
 
-        // initialize new dataset
+        //println!("  DST OFFSET: {} {}", dst_x_offset, dst_y_offset);
+        //println!("  DIMENSIONS: {} {}", dst_width, dst_height);
+
+        // initialize split dataset
         let path = format!("/tmp/{}.{}.{}.{}", win_min_x, 
             win_max_x, win_min_y, win_max_y);
         let split_dataset = driver.create(&path,
@@ -292,18 +275,66 @@ pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
             let buffer = rasterband.read_as::<u8>((src_x_offset, src_y_offset),
                 (buf_width, buf_height), (buf_width, buf_height))?;
 
+            // TODO - remove unecessary pixels
+            
+            
+            // TODO - copy valid pixels to new rasters
+            let mut split_data = vec![0u8; (dst_width * dst_height) as usize];
+            for (x, start_y, end_y) in indices.iter() {
+                if x < &0 || x >= &(src_width as isize) {
+                    continue;
+                }
+ 
+                // TODO -- iterating over 1 to many x values
+                //println!("{} {} {}", x, start_y, end_y);
+                let x_pixel = *x as usize - src_x_offset as usize;
+
+                if x_pixel >= buf_width {
+                    continue; // TODO - tmp -- no idea if this will work
+                }
+
+                for y in *start_y..*end_y {
+                    let y = y as usize;
+                    if y < 0 || y >= src_height {
+                        continue;
+                    }
+
+                    let y_pixel = y - src_y_offset as usize;
+
+                    //println!("    copy {} {}", x_pixel, y_pixel);
+
+                    let data_index = (x_pixel * buf_height) + y_pixel;
+                    let split_data_index =((x_pixel + dst_x_offset as usize) * dst_height as usize) + y_pixel + dst_y_offset as usize;
+
+                    //println!("      {} {}", data_index, split_data_index);
+
+                    //let split_data_index = ((x - src_x_offset as usize + dst_x_offset as usize) * dst_height as usize) + ((y - src_y_offset as usize + dst_y_offset as usize));
+
+                    //println!(" copy pixel {} / {} to {} / {}", data_index, buffer.data.len(), split_data_index, split_data.len());
+
+                    split_data[split_data_index] = buffer.data[data_index];
+                    //println!("copy {} {}", x - src_x_offset as usize, y - src_y_offset as usize);
+                }
+            }
+
             // write rasterband data to output dataset
-            split_dataset.write_raster(i+1, (dst_x_offset, dst_y_offset),
-                (buf_width, buf_height), &buffer)?;
+            let raster = Buffer::new((dst_width as usize,
+                dst_height as usize), split_data);
+            split_dataset.write_raster(i+1, (0, 0),
+                (dst_width as usize, dst_height as usize), &raster);
+ 
+            //split_dataset.write_raster(i+1, (dst_x_offset, dst_y_offset),
+            //    (buf_width, buf_height), &buffer)?;
         }
 
         // add output_dataset to return vector
         results.push(split_dataset);
-        //st_images.push((geohash, output_dataset))
+
+        //break; // TODO - only working on one image
     }
 
     Ok(results)
-}
+}*/
 
 /*pub fn split(dataset: &Dataset, precision: usize)
         -> Result<Vec<(String, Dataset)>, Error> {
@@ -474,38 +505,6 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
 
 #[cfg(test)]
 mod tests {
-    use gdal::raster::{Dataset, Driver};
-
-    use std::path::Path;
-
-    #[test]
-    fn image_split() {
-        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
-
-        // read dataset
-        let dataset = Dataset::open(path).expect("dataset open");
-
-        // open gtiff driver
-        let driver = Driver::get("GTiff").expect("get driver");
-
-        // iterate over geohash split datasets
-        let (y_interval, x_interval) =
-            super::coordinate::get_geohash_intervals(4);
-        for (i, dataset) in super::split(&dataset, 4326, x_interval,
-                y_interval).expect("split dataset").iter().enumerate() {
-
-        /*for (i, dataset) in super::split(&dataset, 3857, 40000.0,
-                40000.0).expect("split dataset").iter().enumerate() {*/
-
-        /*for (i, dataset) in super::split(&dataset, 32613, 40000.0,
-                40000.0).expect("split dataset").iter().enumerate() {*/
-
-            // copy memory datasets to gtiff files
-            dataset.create_copy(&driver, 
-                &format!("/tmp/st-image-{}", i)).expect("dataset copy");
-        }
-    }
-
     /*use gdal::raster::{Dataset, Driver};
 
     use std::io::Cursor;
