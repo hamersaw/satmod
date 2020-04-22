@@ -9,4 +9,3 @@ edition = "2018"
 [dependencies]
 byteorder = "1"
 gdal = "0.6"
-image = " 0.23"
