@@ -1,14 +1,14 @@
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use gdal::errors::Error;
 use gdal::raster::{Buffer, Dataset, Driver};
+use gdal::raster::types::GdalType;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 use gdal_sys::GDALDataType;
 
-use std::io::{Read, Write};
-
 pub mod coordinate;
+pub mod serialize;
 
-pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
+pub fn coverage<T: Copy + GdalType + PartialEq>(
+        dataset: &Dataset, null_value: T) -> Result<f64, Error> {
     let (width, height) = dataset.size();
     let mut invalid_pixels = vec![true; width * height];
 
@@ -17,12 +17,12 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
         let rasterband = dataset.rasterband(i + 1)?;
 
         // read rasterband data into buffer
-        let buffer = rasterband.read_as::<u8>((0, 0),
+        let buffer = rasterband.read_as::<T>((0, 0),
             (width, height), (width, height))?;
 
         // iterate over pixels
         for (i, pixel) in buffer.data.iter().enumerate() {
-            if *pixel != 0u8 {
+            if *pixel != null_value {
                 invalid_pixels[i] = false;
             }
         }
@@ -36,9 +36,9 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     Ok((pixel_count - invalid_count) / pixel_count)
 }
 
-pub fn fill(rasters: &mut Vec<Buffer<u8>>,
-        fill_rasters: &Vec<Buffer<u8>>)
-        -> Result<(), Box<dyn std::error::Error>> {
+pub fn fill<T: Copy + GdalType + PartialEq>(
+        rasters: &mut Vec<Buffer<T>>, fill_rasters: &Vec<Buffer<T>>,
+        null_value: T) -> Result<(), Box<dyn std::error::Error>> {
     // iterate over pixels
     let size = rasters[0].data.len();
     for i in 0..size {
@@ -49,7 +49,7 @@ pub fn fill(rasters: &mut Vec<Buffer<u8>>,
         // check if rasterband pixel is valid
         let mut valid = false;
         for j in 0..rasters.len() {
-            valid = valid || rasters[j].data[i] != 0u8;
+            valid = valid || rasters[j].data[i] != null_value;
         }
 
         // copy pixels from fill_raster bands
@@ -61,78 +61,6 @@ pub fn fill(rasters: &mut Vec<Buffer<u8>>,
     }
 
     Ok(())
-}
-
-pub fn read<T: Read>(reader: &mut T)
-        -> Result<Dataset, Box<dyn std::error::Error>> {
-    // read image dimensions
-    let width = reader.read_u32::<BigEndian>()? as isize;
-    let height = reader.read_u32::<BigEndian>()? as isize;
-
-    // read geo transform
-    let mut transform = [0.0f64; 6];
-    for i in 0..transform.len() {
-        transform[i] = reader.read_f64::<BigEndian>()?;
-    }
- 
-    // read projection
-    let projection_len = reader.read_u32::<BigEndian>()?;
-    let mut projection_buf = vec![0u8; projection_len as usize];
-    reader.read_exact(&mut projection_buf)?;
-    let projection = String::from_utf8(projection_buf)?;
-
-    // read gdal type
-    let gdal_type = reader.read_u32::<BigEndian>()?;
- 
-    // read rasterband count
-    let rasterband_count = reader.read_u8()? as isize;
-
-    // initialize dataset - TODO error
-    let driver = Driver::get("Mem").unwrap();
-    let dataset = match gdal_type {
-        GDALDataType::GDT_Byte => driver.create_with_band_type::<u8>
-            ("unreachable", width, height, rasterband_count).unwrap(),
-        GDALDataType::GDT_UInt16 => driver.create_with_band_type::<u16>
-            ("unreachable", width, height, rasterband_count).unwrap(),
-        _ => unimplemented!(),
-    };
-
-    dataset.set_geo_transform(&transform).unwrap();
-    dataset.set_projection(&projection).unwrap();
- 
-    // read rasterbands
-    let size = (width * height) as usize;
-    for i in 0..rasterband_count {
-        match gdal_type {
-            GDALDataType::GDT_Byte => {
-                // read rasterband
-                let mut data = vec![0u8; size];
-                reader.read_exact(&mut data)?;
-
-                let buffer = Buffer::new((width as usize,
-                    height as usize), data);
-
-                dataset.write_raster::<u8>(i+1, (0, 0), (width as usize,
-                    height as usize), &buffer).unwrap();
-            },
-            GDALDataType::GDT_UInt16 => {
-                // read rasterband
-                let mut data = Vec::new();
-                for _ in 0..size {
-                    data.push(reader.read_u16::<BigEndian>()?);
-                }
-
-                let buffer = Buffer::new((width as usize,
-                    height as usize), data);
-
-                dataset.write_raster::<u16>(i+1, (0, 0), (width as usize,
-                    height as usize), &buffer).unwrap();
-            },
-            _ => unimplemented!(),
-        }
-    }
-
-    Ok(dataset)
 }
 
 pub fn split(dataset: &Dataset, epsg_code: u32, 
@@ -355,57 +283,6 @@ pub fn split(dataset: &Dataset, epsg_code: u32,
     Ok(results)
 }
 
-pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
-        -> Result<(), Box<dyn std::error::Error>> {
-    // write image dimensions
-    let (width, height) = dataset.size();
-    writer.write_u32::<BigEndian>(width as u32)?;
-    writer.write_u32::<BigEndian>(height as u32)?;
-
-    // write geo transform - TODO error
-    let transform = dataset.geo_transform().unwrap();
-    for val in transform.iter() {
-        writer.write_f64::<BigEndian>(*val)?;
-    }
-
-    // write projection
-    let projection = dataset.projection();
-    writer.write_u32::<BigEndian>(projection.len() as u32)?;
-    writer.write(projection.as_bytes())?;
-
-    // write gdal type
-    let gdal_type = dataset.band_type(1)
-        .unwrap_or(GDALDataType::GDT_Byte);
-    writer.write_u32::<BigEndian>(gdal_type)?;
-
-    // write rasterbands
-    writer.write_u8(dataset.count() as u8)?;
-    for i in 0..dataset.count() {
-        // TODO - error
-        match gdal_type {
-            GDALDataType::GDT_Byte => {
-                // writer rasterband data
-                let rasterband =
-                    dataset.read_full_raster_as::<u8>(i + 1).unwrap();
-
-                writer.write(&rasterband.data)?;
-            },
-            GDALDataType::GDT_UInt16 => {
-                // writer rasterband data
-                let rasterband =
-                    dataset.read_full_raster_as::<u16>(i + 1).unwrap();
-
-                for pixel in rasterband.data {
-                    writer.write_u16::<BigEndian>(pixel)?;
-                }
-            },
-            _ => unimplemented!(),
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use gdal::raster::{Dataset, Driver};
@@ -415,10 +292,10 @@ mod tests {
     use std::io::Cursor;
     use std::path::Path;
 
-    /*#[test]
+    #[test]
     fn image_split() {
-        //let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
-        let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
+        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+        //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
 
         // read dataset
         let dataset = Dataset::open(path).expect("dataset open");
@@ -432,12 +309,24 @@ mod tests {
         let mut count = 0;
         for (dataset, _, max_x, _, max_y) in super::split(&dataset, 4326,
                 x_interval, y_interval) .expect("split dataset") {
-            if super::coverage(&dataset).unwrap_or(0.0) == 0.0 {
-                continue;
-            }
-
             // count pixel values in band
             println!("IMAGE: {}", count);
+            count += 1;
+
+            // test image pixel coverage
+            let gdal_type = dataset.band_type(1)
+                .unwrap_or(GDALDataType::GDT_Byte);
+            let coverage = match gdal_type {
+                GDALDataType::GDT_Byte =>
+                    super::coverage::<u8>(&dataset, 0u8),
+                GDALDataType::GDT_UInt16 =>
+                    super::coverage::<u16>(&dataset, 0u16),
+                _ => unimplemented!(),
+            };
+
+            if coverage.unwrap_or(0.0) == 0.0 {
+                continue;
+            }
 
             // iterate over rasterbands
             for i in 0..dataset.count() {
@@ -488,9 +377,8 @@ mod tests {
             dataset.create_copy(&driver,
                 &format!("/tmp/st-image-{}.tif", count), None)
                 .expect("dataset copy");
-            count += 1;
         }
-    }*/
+    }
 
     /*#[test]
     fn transfer() {
