@@ -8,4 +8,6 @@ edition = "2018"
 
 [dependencies]
 byteorder = "1"
-gdal = "0.6"
+#gdal = "0.6"
+gdal = { path = "/home/hamersaw/Projects/gdal" }
+gdal-sys = { path = "/home/hamersaw/Projects/gdal/gdal-sys" }
