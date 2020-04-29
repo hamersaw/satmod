@@ -80,14 +80,22 @@ pub fn read<T: Read>(reader: &mut T)
     let mut projection_buf = vec![0u8; projection_len as usize];
     reader.read_exact(&mut projection_buf)?;
     let projection = String::from_utf8(projection_buf)?;
+
+    // read gdal type
+    let gdal_type = reader.read_u32::<BigEndian>()?;
  
     // read rasterband count
     let rasterband_count = reader.read_u8()? as isize;
 
     // initialize dataset - TODO error
     let driver = Driver::get("Mem").unwrap();
-    let dataset = driver.create("unreachable",
-        width, height, rasterband_count).unwrap();
+    let dataset = match gdal_type {
+        GDALDataType::GDT_Byte => driver.create_with_band_type::<u8>
+            ("unreachable", width, height, rasterband_count).unwrap(),
+        GDALDataType::GDT_UInt16 => driver.create_with_band_type::<u16>
+            ("unreachable", width, height, rasterband_count).unwrap(),
+        _ => unimplemented!(),
+    };
 
     dataset.set_geo_transform(&transform).unwrap();
     dataset.set_projection(&projection).unwrap();
@@ -95,14 +103,33 @@ pub fn read<T: Read>(reader: &mut T)
     // read rasterbands
     let size = (width * height) as usize;
     for i in 0..rasterband_count {
-        // read rasterband data
-        let mut data = vec![0u8; size];
-        reader.read_exact(&mut data)?;
+        match gdal_type {
+            GDALDataType::GDT_Byte => {
+                // read rasterband
+                let mut data = vec![0u8; size];
+                reader.read_exact(&mut data)?;
 
-        // write raster to dataset - TODO error
-        let buffer = Buffer::new((width as usize, height as usize), data);
-        dataset.write_raster(i+1, (0, 0), (width as usize,
-            height as usize), &buffer).unwrap();
+                let buffer = Buffer::new((width as usize,
+                    height as usize), data);
+
+                dataset.write_raster::<u8>(i+1, (0, 0), (width as usize,
+                    height as usize), &buffer).unwrap();
+            },
+            GDALDataType::GDT_UInt16 => {
+                // read rasterband
+                let mut data = Vec::new();
+                for _ in 0..size {
+                    data.push(reader.read_u16::<BigEndian>()?);
+                }
+
+                let buffer = Buffer::new((width as usize,
+                    height as usize), data);
+
+                dataset.write_raster::<u16>(i+1, (0, 0), (width as usize,
+                    height as usize), &buffer).unwrap();
+            },
+            _ => unimplemented!(),
+        }
     }
 
     Ok(dataset)
@@ -277,11 +304,6 @@ pub fn split(dataset: &Dataset, epsg_code: u32,
             Ok(_) => unimplemented!(),
             Err(e) => return Err(e),
         };
-        /*let gdal_type = dataset.band_type(1)
-            .unwrap_or(GDALDataType::GDT_Byte);
-
-        let split_dataset = driver.create_with_band_type::<gdal_type>(
-            &path, dst_width, dst_height, dataset.count())?;*/
 
         // modify transform
         let mut transform = dataset.geo_transform()?;
@@ -351,15 +373,34 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
     writer.write_u32::<BigEndian>(projection.len() as u32)?;
     writer.write(projection.as_bytes())?;
 
+    // write gdal type
+    let gdal_type = dataset.band_type(1)
+        .unwrap_or(GDALDataType::GDT_Byte);
+    writer.write_u32::<BigEndian>(gdal_type)?;
+
     // write rasterbands
     writer.write_u8(dataset.count() as u8)?;
     for i in 0..dataset.count() {
         // TODO - error
-        let rasterband =
-            dataset.read_full_raster_as::<u8>(i + 1).unwrap();
-        let data = rasterband.data;
+        match gdal_type {
+            GDALDataType::GDT_Byte => {
+                // writer rasterband data
+                let rasterband =
+                    dataset.read_full_raster_as::<u8>(i + 1).unwrap();
 
-        writer.write(&data)?;
+                writer.write(&rasterband.data)?;
+            },
+            GDALDataType::GDT_UInt16 => {
+                // writer rasterband data
+                let rasterband =
+                    dataset.read_full_raster_as::<u16>(i + 1).unwrap();
+
+                for pixel in rasterband.data {
+                    writer.write_u16::<BigEndian>(pixel)?;
+                }
+            },
+            _ => unimplemented!(),
+        }
     }
 
     Ok(())
@@ -371,10 +412,10 @@ mod tests {
     use gdal_sys::GDALDataType;
 
     use std::collections::BTreeMap;
-    //use std::io::Cursor;
+    use std::io::Cursor;
     use std::path::Path;
 
-    #[test]
+    /*#[test]
     fn image_split() {
         //let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
         let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
@@ -408,7 +449,7 @@ mod tests {
 
                 match band_type {
                     GDALDataType::GDT_Byte => {
-                        /*let buffer = rasterband.read_band_as::<u8>()
+                        let buffer = rasterband.read_band_as::<u8>()
                             .expect("reading raster");
 
                         // iterate over pixels
@@ -421,10 +462,10 @@ mod tests {
 
                         for (pixel, count) in map.iter() {
                             println!("  {} : {}", pixel * 10, count);
-                        }*/
+                        }
                     },
                     GDALDataType::GDT_UInt16 => {
-                        /*let buffer = rasterband.read_band_as::<u16>()
+                        let buffer = rasterband.read_band_as::<u16>()
                             .expect("reading raster");
 
                         // iterate over pixels
@@ -437,7 +478,7 @@ mod tests {
 
                         for (pixel, count) in map.iter() {
                             println!("  {} : {}", pixel * 1000, count);
-                        }*/
+                        }
                     },
                     _ => unimplemented!(),
                 }
@@ -449,11 +490,13 @@ mod tests {
                 .expect("dataset copy");
             count += 1;
         }
-    }
+    }*/
 
     /*#[test]
     fn transfer() {
-        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+        //let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+        //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
+        let path = Path::new("/tmp/st-image-0.tif");
 
         // read dataset
         let dataset = Dataset::open(path).expect("dataset open");
@@ -469,7 +512,7 @@ mod tests {
 
         // open gtiff driver
         let driver = Driver::get("GTiff").expect("get driver");
-        read_dataset.create_copy(&driver, "/tmp/st-image-transfer")
+        read_dataset.create_copy(&driver, "/tmp/st-image-transfer", None)
             .expect("dataset copy");
     }*/
 }
