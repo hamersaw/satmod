@@ -2,34 +2,6 @@ use gdal::errors::Error;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::raster::types::GdalType;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
-use gdal_sys::GDALDataType;
-
-pub fn fill<T: Copy + GdalType + PartialEq>(
-        rasters: &mut Vec<Buffer<T>>, fill_rasters: &Vec<Buffer<T>>,
-        null_value: T) -> Result<(), Box<dyn std::error::Error>> {
-    // iterate over pixels
-    let size = rasters[0].data.len();
-    for i in 0..size {
-        if fill_rasters[0].data.len() <= i {
-            break;
-        }
-
-        // check if rasterband pixel is valid
-        let mut valid = false;
-        for j in 0..rasters.len() {
-            valid = valid || rasters[j].data[i] != null_value;
-        }
-
-        // copy pixels from fill_raster bands
-        if !valid {
-            for j in 0..rasters.len() {
-                rasters[j].data[i] = fill_rasters[j].data[i];
-            }
-        }
-    }
-
-    Ok(())
-}
 
 pub fn split(dataset: &Dataset, epsg_code: u32, 
         x_interval: f64, y_interval: f64) 
@@ -189,17 +161,9 @@ pub fn split(dataset: &Dataset, epsg_code: u32,
         //println!("  DST DIMENSIONS: {} {}", dst_width, dst_height);
 
         // initialize split dataset
-        let path = format!("unreachable");
-        let split_dataset = match dataset.band_type(1) {
-            Ok(GDALDataType::GDT_Byte) =>
-                driver.create_with_band_type::<u8>(&path,
-                    dst_width, dst_height, dataset.count())?,
-            Ok(GDALDataType::GDT_UInt16) =>
-                driver.create_with_band_type::<u16>(&path,
-                    dst_width, dst_height, dataset.count())?,
-            Ok(_) => unimplemented!(),
-            Err(e) => return Err(e),
-        };
+        let gdal_type = dataset.band_type(1)?;
+        let split_dataset = crate::init_dataset(&driver, "unreachable",
+            gdal_type, dst_width, dst_height, dataset.count()).unwrap();
 
         // modify transform
         let mut transform = dataset.geo_transform()?;
@@ -213,34 +177,10 @@ pub fn split(dataset: &Dataset, epsg_code: u32,
 
         // copy rasterband data to new image
         for i in 0..dataset.count() {
-            let rasterband = dataset.rasterband(i + 1)?;
-            let band_type = rasterband.band_type();
-
-            match band_type {
-                GDALDataType::GDT_Byte => {
-                    // read rasterband data into buffer
-                    let buffer = rasterband.read_as::<u8>(
-                        (src_x_offset, src_y_offset),
-                        (buf_width, buf_height), 
-                        (buf_width, buf_height))?;
-         
-                    split_dataset.write_raster::<u8>(i+1, 
-                        (dst_x_offset, dst_y_offset),
-                        (buf_width, buf_height), &buffer)?;
-                },
-                GDALDataType::GDT_UInt16 => {
-                    // read rasterband data into buffer
-                    let buffer = rasterband.read_as::<u16>(
-                        (src_x_offset, src_y_offset),
-                        (buf_width, buf_height), 
-                        (buf_width, buf_height))?;
-         
-                    split_dataset.write_raster::<u16>(i+1, 
-                        (dst_x_offset, dst_y_offset),
-                        (buf_width, buf_height), &buffer)?;
-                },
-                _ => unimplemented!(),
-            }
+            crate::copy_raster(&dataset, i+1, 
+                (src_x_offset, src_y_offset), (buf_width, buf_height),
+                &split_dataset, i+1, (dst_x_offset, dst_y_offset), 
+                (buf_width, buf_height))?;
         }
 
         // add output_dataset to return vector
@@ -249,4 +189,102 @@ pub fn split(dataset: &Dataset, epsg_code: u32,
     }
 
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use gdal::raster::{Dataset, Driver};
+    use gdal_sys::GDALDataType;
+
+    use std::collections::BTreeMap;
+    use std::io::Cursor;
+    use std::path::Path;
+
+    #[test]
+    fn image_split() {
+        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+        //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
+
+        // read dataset
+        let dataset = Dataset::open(path).expect("dataset open");
+
+        // open gtiff driver
+        let driver = Driver::get("GTiff").expect("get driver");
+
+        // iterate over geohash split datasets
+        let (y_interval, x_interval) =
+            crate::coordinate::get_geohash_intervals(4);
+        let mut count = 0;
+        for (dataset, _, max_x, _, max_y) in super::split(&dataset, 4326,
+                x_interval, y_interval) .expect("split dataset") {
+            // count pixel values in band
+            println!("IMAGE: {}", count);
+            count += 1;
+
+            // test image pixel coverage
+            let gdal_type = dataset.band_type(1)
+                .unwrap_or(GDALDataType::GDT_Byte);
+            let coverage = match gdal_type {
+                GDALDataType::GDT_Byte =>
+                    crate::coverage::<u8>(&dataset, 0u8),
+                GDALDataType::GDT_UInt16 =>
+                    crate::coverage::<u16>(&dataset, 0u16),
+                _ => unimplemented!(),
+            };
+
+            if coverage.unwrap_or(0.0) == 0.0 {
+                continue;
+            }
+
+            // iterate over rasterbands
+            /*for i in 0..dataset.count() {
+                let rasterband = dataset.rasterband(i + 1)
+                    .expect("retrieve rasterband");
+
+                // read rasterband data into buffer
+                let band_type = rasterband.band_type();
+
+                match band_type {
+                    GDALDataType::GDT_Byte => {
+                        let buffer = rasterband.read_band_as::<u8>()
+                            .expect("reading raster");
+
+                        // iterate over pixels
+                        let mut map = BTreeMap::new();
+                        for pixel in buffer.data.iter() {
+                            let count = map.entry(pixel / 10)
+                                .or_insert(0);
+                            *count += 1;
+                        }
+
+                        for (pixel, count) in map.iter() {
+                            println!("  {} : {}", pixel * 10, count);
+                        }
+                    },
+                    GDALDataType::GDT_UInt16 => {
+                        let buffer = rasterband.read_band_as::<u16>()
+                            .expect("reading raster");
+
+                        // iterate over pixels
+                        let mut map = BTreeMap::new();
+                        for pixel in buffer.data.iter() {
+                            let count = map.entry(pixel / 1000)
+                                .or_insert(0);
+                            *count += 1;
+                        }
+
+                        for (pixel, count) in map.iter() {
+                            println!("  {} : {}", pixel * 1000, count);
+                        }
+                    },
+                    _ => unimplemented!(),
+                }
+            }*/
+
+            // copy memory datasets to gtiff files
+            dataset.create_copy(&driver,
+                &format!("/tmp/st-image-{}.tif", count), None)
+                .expect("dataset copy");
+        }
+    }
 }

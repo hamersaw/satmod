@@ -30,13 +30,8 @@ pub fn read<T: Read>(reader: &mut T)
 
     // initialize dataset - TODO error
     let driver = Driver::get("Mem").unwrap();
-    let dataset = match gdal_type {
-        GDALDataType::GDT_Byte => driver.create_with_band_type::<u8>
-            ("unreachable", width, height, rasterband_count).unwrap(),
-        GDALDataType::GDT_UInt16 => driver.create_with_band_type::<u16>
-            ("unreachable", width, height, rasterband_count).unwrap(),
-        _ => unimplemented!(),
-    };
+    let dataset = crate::init_dataset(&driver, "unreachable",
+        gdal_type, width, height, rasterband_count).unwrap();
 
     dataset.set_geo_transform(&transform).unwrap();
     dataset.set_projection(&projection).unwrap();
