@@ -6,9 +6,10 @@ use gdal_sys::GDALDataType;
 
 use std::io::{Read, Write};
 
-pub mod coordinate;
-pub mod serialize;
-pub mod transform;
+mod coordinate;
+pub mod prelude;
+mod serialize;
+mod transform;
 
 pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     let (width, height) = dataset.size();
@@ -33,7 +34,7 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     Ok((pixel_count - invalid_count) / pixel_count)
 }
 
-pub fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
+fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
         index: isize, invalid_pixels: &mut Vec<bool>,
         null_value: T) -> Result<(), Error> {
     // read rasterband data into buffer
@@ -49,32 +50,80 @@ pub fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
     Ok(())
 }
 
-/*pub fn fill(rasters: &mut Vec<Buffer<u8>>,
-        fill_rasters: &Vec<Buffer<u8>>)
-        -> Result<(), Box<dyn std::error::Error>> {
-    // iterate over pixels
-    let size = rasters[0].data.len();
-    for i in 0..size {
-        if fill_rasters[0].data.len() <= i {
-            break;
+pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Error> {
+    // TODO - test datatype for each dataset
+    match datasets[0].band_type(1)? {
+        GDALDataType::GDT_Byte => _fill::<u8>(datasets, 0u8),
+        GDALDataType::GDT_UInt16 => _fill::<u16>(datasets, 0u16),
+        _ => unimplemented!(),
+    }
+}
+
+fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
+        null_value: T) -> Result<Dataset, Error> {
+    let dataset = &datasets[0];
+
+    // read first dataset rasters
+    let mut rasters = Vec::new();
+    for i in 0..dataset.count() {
+        let raster = dataset.read_full_raster_as::<T>(i + 1).unwrap();
+        rasters.push(raster);
+    }
+
+    // fill with remaining datasets
+    for i in 1..datasets.len() {
+        let fill_dataset = &datasets[i];
+
+        // read fill dataset rasterbands
+        let mut fill_rasters = Vec::new();
+        for j in 0..fill_dataset.count() {
+            let fill_raster = fill_dataset
+                .read_full_raster_as::<T>(j+1).unwrap();
+            fill_rasters.push(fill_raster);
         }
 
-        // check if rasterband pixel is valid
-        let mut valid = false;
-        for j in 0..rasters.len() {
-            valid = valid || rasters[j].data[i] != 0u8;
-        }
+        // iterate over pixels
+        let size = rasters[0].data.len();
+        for j in 0..size {
+            if fill_rasters[0].data.len() <= j {
+                break;
+            }
 
-        // copy pixels from fill_raster bands
-        if !valid {
-            for j in 0..rasters.len() {
-                rasters[j].data[i] = fill_rasters[j].data[i];
+            // check if rasterband pixel is valid
+            let mut valid = false;
+            for k in 0..rasters.len() {
+                valid = valid || rasters[k].data[j] != null_value;
+            }
+
+            // copy pixels from fill_raster bands
+            if !valid {
+                for k in 0..rasters.len() {
+                    rasters[k].data[j] = fill_rasters[k].data[j];
+                }
             }
         }
     }
 
-    Ok(())
-}*/
+    // open memory dataset
+    let (width, height) = dataset.size();
+    let driver = Driver::get("Mem").unwrap();
+    let mem_dataset = crate::init_dataset(&driver,
+        "unreachable", T::gdal_type(), width as isize,
+        height as isize, rasters.len() as isize)?;
+
+    mem_dataset.set_geo_transform(
+        &dataset.geo_transform().unwrap()).unwrap();
+    mem_dataset.set_projection(
+        &dataset.projection()).unwrap();
+
+    // set rasterbands - TODO error
+    for (i, raster) in rasters.iter().enumerate() {
+        mem_dataset.write_raster::<T>((i + 1) as isize,
+            (0, 0), (width, height), &raster).unwrap();
+    }
+
+    Ok(mem_dataset)
+}
 
 fn init_dataset(driver: &Driver, filename: &str,
         gdal_type: GDALDataType::Type, width: isize, height: isize,
