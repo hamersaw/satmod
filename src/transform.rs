@@ -1,6 +1,5 @@
 use gdal::errors::Error;
-use gdal::raster::{Buffer, Dataset, Driver};
-use gdal::raster::types::GdalType;
+use gdal::raster::{Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 pub fn split(dataset: &Dataset, epsg_code: u32, 
@@ -225,10 +224,8 @@ mod tests {
             let gdal_type = dataset.band_type(1)
                 .unwrap_or(GDALDataType::GDT_Byte);
             let coverage = match gdal_type {
-                GDALDataType::GDT_Byte =>
-                    crate::coverage::<u8>(&dataset, 0u8),
-                GDALDataType::GDT_UInt16 =>
-                    crate::coverage::<u16>(&dataset, 0u16),
+                GDALDataType::GDT_Byte => crate::coverage(&dataset),
+                GDALDataType::GDT_UInt16 => crate::coverage(&dataset),
                 _ => unimplemented!(),
             };
 

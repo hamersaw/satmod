@@ -1,5 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use gdal::raster::{Buffer, Dataset, Driver};
+use gdal::raster::{Dataset, Driver};
 use gdal_sys::GDALDataType;
 
 use std::io::{Read, Write};
@@ -37,35 +37,8 @@ pub fn read<T: Read>(reader: &mut T)
     dataset.set_projection(&projection).unwrap();
  
     // read rasterbands
-    let size = (width * height) as usize;
     for i in 0..rasterband_count {
-        match gdal_type {
-            GDALDataType::GDT_Byte => {
-                // read rasterband
-                let mut data = vec![0u8; size];
-                reader.read_exact(&mut data)?;
-
-                let buffer = Buffer::new((width as usize,
-                    height as usize), data);
-
-                dataset.write_raster::<u8>(i+1, (0, 0), (width as usize,
-                    height as usize), &buffer).unwrap();
-            },
-            GDALDataType::GDT_UInt16 => {
-                // read rasterband
-                let mut data = Vec::new();
-                for _ in 0..size {
-                    data.push(reader.read_u16::<BigEndian>()?);
-                }
-
-                let buffer = Buffer::new((width as usize,
-                    height as usize), data);
-
-                dataset.write_raster::<u16>(i+1, (0, 0), (width as usize,
-                    height as usize), &buffer).unwrap();
-            },
-            _ => unimplemented!(),
-        }
+        crate::read_raster(&dataset, i+1, reader)?;
     }
 
     Ok(dataset)
@@ -97,27 +70,41 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
     // write rasterbands
     writer.write_u8(dataset.count() as u8)?;
     for i in 0..dataset.count() {
-        // TODO - error
-        match gdal_type {
-            GDALDataType::GDT_Byte => {
-                // writer rasterband data
-                let rasterband =
-                    dataset.read_full_raster_as::<u8>(i + 1).unwrap();
-
-                writer.write(&rasterband.data)?;
-            },
-            GDALDataType::GDT_UInt16 => {
-                // writer rasterband data
-                let rasterband =
-                    dataset.read_full_raster_as::<u16>(i + 1).unwrap();
-
-                for pixel in rasterband.data {
-                    writer.write_u16::<BigEndian>(pixel)?;
-                }
-            },
-            _ => unimplemented!(),
-        }
+        crate::write_raster(dataset, i+1, writer)?;
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use gdal::raster::{Dataset, Driver};
+    use gdal_sys::GDALDataType;
+
+    use std::collections::BTreeMap;
+    use std::io::Cursor;
+    use std::path::Path;
+
+    #[test]
+    fn transfer() {
+        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+        //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
+
+        // read dataset
+        let dataset = Dataset::open(path).expect("dataset open");
+
+        // write dataset to buffer
+        let mut buffer = Vec::new();
+        super::write(&dataset, &mut buffer).expect("dataset write");
+
+        // read dataset from buffer
+        let mut cursor = Cursor::new(buffer);
+        let read_dataset = super::read(&mut cursor)
+            .expect("dataset read");
+
+        // open gtiff driver
+        let driver = Driver::get("GTiff").expect("get driver");
+        read_dataset.create_copy(&driver, "/tmp/st-image-transfer", None)
+            .expect("dataset copy");
+    }
 }

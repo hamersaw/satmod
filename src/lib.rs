@@ -1,7 +1,10 @@
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use gdal::errors::Error;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::raster::types::GdalType;
 use gdal_sys::GDALDataType;
+
+use std::io::{Read, Write};
 
 pub mod coordinate;
 pub mod serialize;
@@ -116,36 +119,65 @@ fn _copy_raster<T: Copy + GdalType>(src_dataset: &Dataset,
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    /*use gdal::raster::{Dataset, Driver};
-    use gdal_sys::GDALDataType;
+fn read_raster<T: Read>(dataset: &Dataset, index: isize,
+        reader: &mut T) -> Result<(), Box<dyn std::error::Error>> {
+    // compute raster size
+    let (width, height) = dataset.size();
+    let size = (width * height) as usize;
 
-    use std::collections::BTreeMap;
-    use std::io::Cursor;
-    use std::path::Path;
+    // read raster type
+    let gdal_type = reader.read_u32::<BigEndian>()?;
+    match gdal_type  {
+        GDALDataType::GDT_Byte => {
+            let mut data = vec![0u8; size];
+            reader.read_exact(&mut data)?;
 
-    #[test]
-    fn transfer() {
-        //let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
-        //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
-        let path = Path::new("/tmp/st-image-0.tif");
+            let buffer = Buffer::new((width as usize,
+                height as usize), data);
 
-        // read dataset
-        let dataset = Dataset::open(path).expect("dataset open");
+            dataset.write_raster::<u8>(index, (0, 0), (width as usize,
+                height as usize), &buffer).unwrap();
+        },
+        GDALDataType::GDT_UInt16 => {
+            // read rasterband
+            let mut data = Vec::new();
+            for _ in 0..size {
+                data.push(reader.read_u16::<BigEndian>()?);
+            }
 
-        // write dataset to buffer
-        let mut buffer = Vec::new();
-        super::write(&dataset, &mut buffer).expect("dataset write");
+            let buffer = Buffer::new((width as usize,
+                height as usize), data);
 
-        // read dataset from buffer
-        let mut cursor = Cursor::new(buffer);
-        let read_dataset = super::read(&mut cursor)
-            .expect("dataset read");
+            dataset.write_raster::<u16>(index, (0, 0), (width as usize,
+                height as usize), &buffer).unwrap();
+        },
+        _ => unimplemented!(),
+    }
 
-        // open gtiff driver
-        let driver = Driver::get("GTiff").expect("get driver");
-        read_dataset.create_copy(&driver, "/tmp/st-image-transfer", None)
-            .expect("dataset copy");
-    }*/
+    Ok(())
+}
+
+fn write_raster<T: Write>(dataset: &Dataset, index: isize,
+        writer: &mut T) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO - error
+    let gdal_type = dataset.band_type(index).unwrap();
+    writer.write_u32::<BigEndian>(gdal_type)?;
+
+    match gdal_type {
+        GDALDataType::GDT_Byte => {
+            let buffer = dataset
+                .read_full_raster_as::<u8>(index).unwrap();
+            writer.write(&buffer.data)?;
+        },
+        GDALDataType::GDT_UInt16 => {
+            let buffer = dataset
+                .read_full_raster_as::<u16>(index).unwrap();
+            for pixel in buffer.data {
+                writer.write_u16::<BigEndian>(pixel)?;
+            }
+        },
+        _ => unimplemented!(),
+    }
+
+    Ok(())
 }
