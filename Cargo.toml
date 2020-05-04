@@ -9,5 +9,7 @@ edition = "2018"
 [dependencies]
 byteorder = "1"
 #gdal = "0.6"
-gdal = { path = "/home/hamersaw/Projects/gdal" }
-gdal-sys = { path = "/home/hamersaw/Projects/gdal/gdal-sys" }
+#gdal = { path = "/home/hamersaw/Projects/gdal" }
+#gdal-sys = { path = "/home/hamersaw/Projects/gdal/gdal-sys" }
+gdal = { git = "https://github.com/hamersaw/gdal", branch = "feature-options" }
+gdal-sys = { git = "https://github.com/hamersaw/gdal", branch = "feature-options", package = "gdal-sys" }
