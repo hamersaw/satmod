@@ -20,6 +20,8 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
         match dataset.band_type(i+1)? {
             GDALDataType::GDT_Byte => _coverage::<u8>(dataset,
                 i+1, &mut invalid_pixels, 0u8)?,
+            GDALDataType::GDT_Int16 => _coverage::<i16>(dataset,
+                i+1, &mut invalid_pixels, 0i16)?,
             GDALDataType::GDT_UInt16 => _coverage::<u16>(dataset,
                 i+1, &mut invalid_pixels, 0u16)?,
             _ => unimplemented!(),
@@ -54,6 +56,7 @@ pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Error> {
     // TODO - test datatype for each dataset
     match datasets[0].band_type(1)? {
         GDALDataType::GDT_Byte => _fill::<u8>(datasets, 0u8),
+        GDALDataType::GDT_Int16 => _fill::<i16>(datasets, 0i16),
         GDALDataType::GDT_UInt16 => _fill::<u16>(datasets, 0u16),
         _ => unimplemented!(),
     }
@@ -131,6 +134,8 @@ fn init_dataset(driver: &Driver, filename: &str,
     match gdal_type {
         GDALDataType::GDT_Byte => driver.create_with_band_type::<u8>
             (filename, width, height, rasterband_count),
+        GDALDataType::GDT_Int16 => driver.create_with_band_type::<i16>
+            (filename, width, height, rasterband_count),
         GDALDataType::GDT_UInt16 => driver.create_with_band_type::<u16>
             (filename, width, height, rasterband_count),
         _ => unimplemented!(),
@@ -144,6 +149,9 @@ fn copy_raster(src_dataset: &Dataset, src_index: isize,
         -> Result<(), Error> {
     match src_dataset.band_type(src_index)? {
         GDALDataType::GDT_Byte => _copy_raster::<u8>(src_dataset, 
+            src_index, src_window, src_window_size, dst_dataset, 
+            dst_index, dst_window, dst_window_size),
+        GDALDataType::GDT_Int16 => _copy_raster::<i16>(src_dataset, 
             src_index, src_window, src_window_size, dst_dataset, 
             dst_index, dst_window, dst_window_size),
         GDALDataType::GDT_UInt16 => _copy_raster::<u16>(src_dataset, 
@@ -191,6 +199,19 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
             // read rasterband
             let mut data = Vec::new();
             for _ in 0..size {
+                data.push(reader.read_i16::<BigEndian>()?);
+            }
+
+            let buffer = Buffer::new((width as usize,
+                height as usize), data);
+
+            dataset.write_raster::<i16>(index, (0, 0), (width as usize,
+                height as usize), &buffer).unwrap();
+        },
+        GDALDataType::GDT_UInt16 => {
+            // read rasterband
+            let mut data = Vec::new();
+            for _ in 0..size {
                 data.push(reader.read_u16::<BigEndian>()?);
             }
 
@@ -217,6 +238,13 @@ fn write_raster<T: Write>(dataset: &Dataset, index: isize,
             let buffer = dataset
                 .read_full_raster_as::<u8>(index).unwrap();
             writer.write(&buffer.data)?;
+        },
+        GDALDataType::GDT_Int16 => {
+            let buffer = dataset
+                .read_full_raster_as::<i16>(index).unwrap();
+            for pixel in buffer.data {
+                writer.write_i16::<BigEndian>(pixel)?;
+            }
         },
         GDALDataType::GDT_UInt16 => {
             let buffer = dataset
