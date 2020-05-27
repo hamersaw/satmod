@@ -195,7 +195,7 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
             dataset.write_raster::<u8>(index, (0, 0), (width as usize,
                 height as usize), &buffer).unwrap();
         },
-        GDALDataType::GDT_UInt16 => {
+        GDALDataType::GDT_Int16 => {
             // read rasterband
             let mut data = Vec::new();
             for _ in 0..size {
