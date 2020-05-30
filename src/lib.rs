@@ -17,13 +17,18 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     
     // iterate over rasterbands
     for i in 0..dataset.count() {
-        match dataset.band_type(i+1)? {
+        let rasterband = dataset.rasterband(i+1)?;
+
+        match rasterband.band_type() {
             GDALDataType::GDT_Byte => _coverage::<u8>(dataset,
-                i+1, &mut invalid_pixels, 0u8)?,
+                i+1, &mut invalid_pixels,
+                rasterband.no_data_value().unwrap_or(0.0) as u8)?,
             GDALDataType::GDT_Int16 => _coverage::<i16>(dataset,
-                i+1, &mut invalid_pixels, 0i16)?,
+                i+1, &mut invalid_pixels,
+                rasterband.no_data_value().unwrap_or(0.0) as i16)?,
             GDALDataType::GDT_UInt16 => _coverage::<u16>(dataset,
-                i+1, &mut invalid_pixels, 0u16)?,
+                i+1, &mut invalid_pixels,
+                rasterband.no_data_value().unwrap_or(0.0) as u16)?,
             _ => unimplemented!(),
         }
     }
@@ -142,7 +147,7 @@ fn init_dataset(driver: &Driver, filename: &str,
     }
 }
 
-fn copy_raster(src_dataset: &Dataset, src_index: isize,
+pub fn copy_raster(src_dataset: &Dataset, src_index: isize,
         src_window: (isize, isize), src_window_size: (usize, usize),
         dst_dataset: &Dataset, dst_index: isize, 
         dst_window: (isize, isize), dst_window_size: (usize, usize))
@@ -167,11 +172,18 @@ fn _copy_raster<T: Copy + GdalType>(src_dataset: &Dataset,
         dst_index: isize, dst_window: (isize, isize), 
         dst_window_size: (usize, usize)) -> Result<(), Error> {
     // read rasterband data into buffer
-    let buffer = src_dataset.read_raster_as::<T>(src_index,
-        src_window, src_window_size, dst_window_size)?;
+    let src_rasterband = src_dataset.rasterband(src_index)?;
+    let buffer = src_rasterband.read_as::<T>(src_window,
+        src_window_size, dst_window_size)?;
 
-    dst_dataset.write_raster::<T>(dst_index,
-        dst_window, dst_window_size, &buffer)?;
+    // write to new rasterband
+    let dst_rasterband = dst_dataset.rasterband(dst_index)?;
+    dst_rasterband.write::<T>(dst_window, dst_window_size, &buffer)?;
+
+    // maintain rasterband metadata
+    if let Some(value) = src_rasterband.no_data_value() {
+        dst_rasterband.set_no_data_value(value)?;
+    }
 
     Ok(())
 }
