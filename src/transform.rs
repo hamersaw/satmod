@@ -2,9 +2,71 @@ use gdal::errors::Error;
 use gdal::raster::{Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
-pub fn split(dataset: &Dataset, epsg_code: u32, 
-        x_interval: f64, y_interval: f64) 
-        -> Result<Vec<(Dataset, f64, f64, f64, f64)>, Error> {
+pub struct DatasetSplit<'a> {
+    buf_height: usize,
+    buf_width: usize,
+    dataset: &'a Dataset,
+    dst_height: isize,
+    dst_width: isize,
+    dst_x_offset: isize,
+    dst_y_offset: isize,
+    min_cx: f64,
+    min_px: isize,
+    max_cx: f64,
+    max_px: isize,
+    min_cy: f64,
+    min_py: isize,
+    max_cy: f64,
+    max_py: isize,
+    src_x_offset: isize,
+    src_y_offset: isize,
+}
+
+impl<'a> DatasetSplit<'a> {
+    pub fn coordinates(&self) -> (f64, f64, f64, f64) {
+        (self.min_cx, self.max_cx, self.min_cy, self.max_cy)
+    }
+
+    pub fn dataset(&self) -> Result<Dataset, Error> {
+        // open memory driver
+        let driver = Driver::get("Mem")?;
+
+        // initialize split Dataset
+        let gdal_type = self.dataset.band_type(1)?;
+        let split_dataset = crate::init_dataset(&driver,
+            "unreachable", gdal_type, self.dst_width, 
+            self.dst_height, self.dataset.count()).unwrap();
+
+        // modify transform
+        let mut transform = self.dataset.geo_transform()?;
+        transform[0] = transform[0] + (self.min_px as f64 * transform[1])
+            + (self.min_py as f64 * transform[2]);
+        transform[3] = transform[3] + (self.min_px as f64 * transform[4])
+            + (self.min_py as f64 * transform[5]);
+
+        split_dataset.set_geo_transform(&transform)?;
+        split_dataset.set_projection(&self.dataset.projection())?;
+
+        // copy rasterband data to new image
+        for i in 0..self.dataset.count() {
+            crate::copy_raster(self.dataset, i+1, 
+                (self.src_x_offset, self.src_y_offset),
+                (self.buf_width, self.buf_height),
+                &split_dataset, i+1,
+                (self.dst_x_offset, self.dst_y_offset), 
+                (self.buf_width, self.buf_height))?;
+        }
+
+        Ok(split_dataset)
+    }
+
+    pub fn pixels(&self) -> (isize, isize, isize, isize) {
+        (self.min_px, self.max_px, self.min_py, self.max_py)
+    }
+}
+
+pub fn split(dataset: &Dataset, epsg_code: u32, x_interval: f64,
+        y_interval: f64) -> Result<Vec<DatasetSplit>, Error> {
     // initialize transform array and CoordTransform's from dataset
     let transform = dataset.geo_transform()?;
 
@@ -159,32 +221,26 @@ pub fn split(dataset: &Dataset, epsg_code: u32,
         //println!("  DST OFFSET: {} {}", dst_x_offset, dst_y_offset);
         //println!("  DST DIMENSIONS: {} {}", dst_width, dst_height);
 
-        // initialize split dataset
-        let gdal_type = dataset.band_type(1)?;
-        let split_dataset = crate::init_dataset(&driver, "unreachable",
-            gdal_type, dst_width, dst_height, dataset.count()).unwrap();
-
-        // modify transform
-        let mut transform = dataset.geo_transform()?;
-        transform[0] = transform[0] + (bound_min_px as f64 * transform[1])
-            + (bound_min_py as f64 * transform[2]);
-        transform[3] = transform[3] + (bound_min_px as f64 * transform[4])
-            + (bound_min_py as f64 * transform[5]);
-
-        split_dataset.set_geo_transform(&transform)?;
-        split_dataset.set_projection(&dataset.projection())?;
-
-        // copy rasterband data to new image
-        for i in 0..dataset.count() {
-            crate::copy_raster(&dataset, i+1, 
-                (src_x_offset, src_y_offset), (buf_width, buf_height),
-                &split_dataset, i+1, (dst_x_offset, dst_y_offset), 
-                (buf_width, buf_height))?;
-        }
-
-        // add output_dataset to return vector
-        results.push((split_dataset, *win_min_cx,
-            *win_max_cx, *win_min_cy, *win_max_cy));
+        // add DatasetSplit
+        results.push(DatasetSplit {
+            buf_height: buf_height,
+            buf_width: buf_width,
+            dataset: dataset,
+            dst_height: dst_height,
+            dst_width: dst_width,
+            dst_x_offset: dst_x_offset,
+            dst_y_offset: dst_y_offset,
+            min_cx: bound_min_cx,
+            min_px: bound_min_px,
+            max_cx: bound_max_cx,
+            max_px: bound_max_px,
+            min_cy: bound_min_cy,
+            min_py: bound_min_py,
+            max_cy: bound_max_cy,
+            max_py: bound_max_py,
+            src_x_offset: src_x_offset,
+            src_y_offset: src_y_offset,
+        });
     }
 
     Ok(results)
@@ -214,74 +270,21 @@ mod tests {
         let (y_interval, x_interval) =
             crate::coordinate::get_geohash_intervals(4);
         let mut count = 0;
-        for (dataset, _, max_x, _, max_y) in super::split(&dataset, 4326,
-                x_interval, y_interval) .expect("split dataset") {
-            // count pixel values in band
+        for dataset_split in super::split(&dataset, 4326,
+                x_interval, y_interval).expect("split dataset") {
             println!("IMAGE: {}", count);
             count += 1;
 
-            // test image pixel coverage
-            let gdal_type = dataset.band_type(1)
-                .unwrap_or(GDALDataType::GDT_Byte);
-            let coverage = match gdal_type {
-                GDALDataType::GDT_Byte => crate::coverage(&dataset),
-                GDALDataType::GDT_UInt16 => crate::coverage(&dataset),
-                _ => unimplemented!(),
-            };
-
-            if coverage.unwrap_or(0.0) == 0.0 {
-                continue;
-            }
-
-            // iterate over rasterbands
-            /*for i in 0..dataset.count() {
-                let rasterband = dataset.rasterband(i + 1)
-                    .expect("retrieve rasterband");
-
-                // read rasterband data into buffer
-                let band_type = rasterband.band_type();
-
-                match band_type {
-                    GDALDataType::GDT_Byte => {
-                        let buffer = rasterband.read_band_as::<u8>()
-                            .expect("reading raster");
-
-                        // iterate over pixels
-                        let mut map = BTreeMap::new();
-                        for pixel in buffer.data.iter() {
-                            let count = map.entry(pixel / 10)
-                                .or_insert(0);
-                            *count += 1;
-                        }
-
-                        for (pixel, count) in map.iter() {
-                            println!("  {} : {}", pixel * 10, count);
-                        }
-                    },
-                    GDALDataType::GDT_UInt16 => {
-                        let buffer = rasterband.read_band_as::<u16>()
-                            .expect("reading raster");
-
-                        // iterate over pixels
-                        let mut map = BTreeMap::new();
-                        for pixel in buffer.data.iter() {
-                            let count = map.entry(pixel / 1000)
-                                .or_insert(0);
-                            *count += 1;
-                        }
-
-                        for (pixel, count) in map.iter() {
-                            println!("  {} : {}", pixel * 1000, count);
-                        }
-                    },
-                    _ => unimplemented!(),
-                }
-            }*/
+            let dataset = dataset_split.dataset()
+                .expect("perform split operation");
+            let pixel_coverage = crate::coverage(&dataset)
+                .expect("dataset pixel coverage");
+            println!("  {}", pixel_coverage);
 
             // copy memory datasets to gtiff files
-            dataset.create_copy(&driver,
-                &format!("/tmp/st-image-{}.tif", count), None)
-                .expect("dataset copy");
+            //dataset.create_copy(&driver,
+            //    &format!("/tmp/st-image-{}.tif", count), None)
+            //    .expect("dataset copy");
         }
     }
 }
