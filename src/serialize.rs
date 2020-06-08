@@ -85,7 +85,7 @@ mod tests {
     use std::io::Cursor;
     use std::path::Path;
 
-    #[test]
+    /*#[test]
     fn transfer() {
         let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
         //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
@@ -106,5 +106,5 @@ mod tests {
         let driver = Driver::get("GTiff").expect("get driver");
         read_dataset.create_copy(&driver, "/tmp/st-image-transfer", None)
             .expect("dataset copy");
-    }
+    }*/
 }
