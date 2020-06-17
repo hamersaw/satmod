@@ -30,7 +30,9 @@ pub fn read<T: Read>(reader: &mut T)
 
     // initialize dataset - TODO error
     let driver = Driver::get("Mem").unwrap();
-    let dataset = crate::init_dataset(&driver, "unreachable",
+    unimplemented!();
+    // TODO unimplemented
+    /*let dataset = crate::init_dataset(&driver, "unreachable",
         gdal_type, width, height, rasterband_count).unwrap();
 
     dataset.set_geo_transform(&transform).unwrap();
@@ -41,7 +43,7 @@ pub fn read<T: Read>(reader: &mut T)
         crate::read_raster(&dataset, i+1, reader)?;
     }
 
-    Ok(dataset)
+    Ok(dataset)*/
 }
 
 pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)

@@ -33,7 +33,9 @@ impl<'a> DatasetSplit<'a> {
         // open memory driver
         let driver = Driver::get("Mem")?;
 
-        // initialize split Dataset
+        unimplemented!();
+        // TODO unimplemented
+        /*// initialize split Dataset
         let gdal_type = self.dataset.band_type(1)?;
         let split_dataset = crate::init_dataset(&driver,
             "unreachable", gdal_type, self.dst_width, 
@@ -59,7 +61,7 @@ impl<'a> DatasetSplit<'a> {
                 (self.buf_width, self.buf_height))?;
         }
 
-        Ok(split_dataset)
+        Ok(split_dataset)*/
     }
 
     pub fn pixels(&self) -> (isize, isize, isize, isize) {

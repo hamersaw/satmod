@@ -11,6 +11,28 @@ pub mod prelude;
 mod serialize;
 mod transform;
 
+pub trait FromPrimitive {
+    fn from_f64(value: f64) -> Self;
+}
+
+impl FromPrimitive for u8 {
+    fn from_f64(value: f64) -> Self {
+        value as u8
+    }
+}
+
+impl FromPrimitive for u16 {
+    fn from_f64(value: f64) -> Self {
+        value as u16
+    }
+}
+
+impl FromPrimitive for i16 {
+    fn from_f64(value: f64) -> Self {
+        value as i16
+    }
+}
+
 pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
     let (width, height) = dataset.size();
     let mut invalid_pixels = vec![true; width * height];
@@ -57,7 +79,7 @@ fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
     Ok(())
 }
 
-pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Error> {
+/*pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Error> {
     // TODO - test datatype for each dataset
     match datasets[0].band_type(1)? {
         GDALDataType::GDT_Byte => _fill::<u8>(datasets, 0u8),
@@ -131,20 +153,47 @@ fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
     }
 
     Ok(mem_dataset)
-}
+}*/
 
-fn init_dataset(driver: &Driver, filename: &str,
+pub fn init_dataset(driver: &Driver, filename: &str,
         gdal_type: GDALDataType::Type, width: isize, height: isize,
-        rasterband_count: isize) -> Result<Dataset, Error> {
+        no_data_values: &Vec<Option<f64>>) -> Result<Dataset, Error> {
     match gdal_type {
-        GDALDataType::GDT_Byte => driver.create_with_band_type::<u8>
-            (filename, width, height, rasterband_count),
-        GDALDataType::GDT_Int16 => driver.create_with_band_type::<i16>
-            (filename, width, height, rasterband_count),
-        GDALDataType::GDT_UInt16 => driver.create_with_band_type::<u16>
-            (filename, width, height, rasterband_count),
+        GDALDataType::GDT_Byte => _init_dataset::<u8>(driver,
+            filename, width, height, no_data_values),
+        GDALDataType::GDT_Int16 => _init_dataset::<i16>(driver,
+            filename, width, height, no_data_values),
+        GDALDataType::GDT_UInt16 => _init_dataset::<u16>(driver,
+            filename, width, height, no_data_values),
         _ => unimplemented!(),
     }
+}
+
+pub fn _init_dataset<T: Copy + GdalType + FromPrimitive>(
+        driver: &Driver, filename: &str, width: isize, height: isize,
+        no_data_values: &Vec<Option<f64>>) -> Result<Dataset, Error> {
+    // create dataset
+    let dataset = driver.create_with_band_type::<T>
+        (filename, width, height, no_data_values.len() as isize)?;
+
+    // iterate over rasterband no_data values
+    let (buf_width, buf_height) = (width as usize, height as usize);
+    for (i, no_data_value) in no_data_values.iter().enumerate() {
+        // if no_data value exists -> write to rasterband
+        if let Some(no_data_value) = no_data_value {
+            let buffer = Buffer::new((buf_width, buf_height), 
+                vec!(T::from_f64(*no_data_value); buf_width * buf_height));
+
+            // write no_data buffer to rasterband
+            let rasterband = dataset.rasterband(i as isize + 1)?;
+            rasterband.set_no_data_value(*no_data_value)?;
+
+            rasterband.write::<T>((0, 0),
+                (buf_width, buf_height), &buffer)?;
+        }
+    }
+
+    Ok(dataset)
 }
 
 pub fn copy_raster(src_dataset: &Dataset, src_index: isize,
@@ -152,6 +201,7 @@ pub fn copy_raster(src_dataset: &Dataset, src_index: isize,
         dst_dataset: &Dataset, dst_index: isize, 
         dst_window: (isize, isize), dst_window_size: (usize, usize))
         -> Result<(), Error> {
+    // TODO - ensure both rasters have same no_data value
     match src_dataset.band_type(src_index)? {
         GDALDataType::GDT_Byte => _copy_raster::<u8>(src_dataset, 
             src_index, src_window, src_window_size, dst_dataset, 
