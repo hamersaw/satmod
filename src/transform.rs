@@ -33,13 +33,14 @@ impl<'a> DatasetSplit<'a> {
         // open memory driver
         let driver = Driver::get("Mem")?;
 
-        unimplemented!();
-        // TODO unimplemented
-        /*// initialize split Dataset
-        let gdal_type = self.dataset.band_type(1)?;
+        // initialize split Dataset
+        let rasterband = self.dataset.rasterband(1)?;
+        let gdal_type = rasterband.band_type();
+        let no_data_value = rasterband.no_data_value();
+
         let split_dataset = crate::init_dataset(&driver,
-            "unreachable", gdal_type, self.dst_width, 
-            self.dst_height, self.dataset.count()).unwrap();
+            "unreachable", gdal_type, self.dst_width, self.dst_height,
+            self.dataset.count(), no_data_value).unwrap();
 
         // modify transform
         let mut transform = self.dataset.geo_transform()?;
@@ -61,7 +62,7 @@ impl<'a> DatasetSplit<'a> {
                 (self.buf_width, self.buf_height))?;
         }
 
-        Ok(split_dataset)*/
+        Ok(split_dataset)
     }
 
     pub fn pixels(&self) -> (isize, isize, isize, isize) {

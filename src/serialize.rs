@@ -1,6 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use gdal::raster::{Dataset, Driver};
-use gdal_sys::GDALDataType;
 
 use std::io::{Read, Write};
 
@@ -22,18 +21,20 @@ pub fn read<T: Read>(reader: &mut T)
     reader.read_exact(&mut projection_buf)?;
     let projection = String::from_utf8(projection_buf)?;
 
-    // read gdal type
+    // read gdal type and no_data value
     let gdal_type = reader.read_u32::<BigEndian>()?;
+    let no_data_value = match reader.read_u8()? {
+        0 => None,
+        _ => Some(reader.read_f64::<BigEndian>()?),
+    };
  
     // read rasterband count
     let rasterband_count = reader.read_u8()? as isize;
 
     // initialize dataset - TODO error
     let driver = Driver::get("Mem").unwrap();
-    unimplemented!();
-    // TODO unimplemented
-    /*let dataset = crate::init_dataset(&driver, "unreachable",
-        gdal_type, width, height, rasterband_count).unwrap();
+    let dataset = crate::init_dataset(&driver, "unreachable", gdal_type,
+        width, height, rasterband_count, no_data_value).unwrap();
 
     dataset.set_geo_transform(&transform).unwrap();
     dataset.set_projection(&projection).unwrap();
@@ -43,7 +44,7 @@ pub fn read<T: Read>(reader: &mut T)
         crate::read_raster(&dataset, i+1, reader)?;
     }
 
-    Ok(dataset)*/
+    Ok(dataset)
 }
 
 pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
@@ -64,10 +65,16 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
     writer.write_u32::<BigEndian>(projection.len() as u32)?;
     writer.write(projection.as_bytes())?;
 
-    // write gdal type
-    let gdal_type = dataset.band_type(1)
-        .unwrap_or(GDALDataType::GDT_Byte);
-    writer.write_u32::<BigEndian>(gdal_type)?;
+    // write gdal type and no_data value - TODO error
+    let rasterband = dataset.rasterband(1).unwrap();
+    writer.write_u32::<BigEndian>(rasterband.band_type())?;
+    match rasterband.no_data_value() {
+        Some(value) => {
+            writer.write_u8(1)?;
+            writer.write_f64::<BigEndian>(value)?
+        },
+        None => writer.write_u8(0)?,
+    }
 
     // write rasterbands
     writer.write_u8(dataset.count() as u8)?;

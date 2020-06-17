@@ -157,36 +157,38 @@ fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
 
 pub fn init_dataset(driver: &Driver, filename: &str,
         gdal_type: GDALDataType::Type, width: isize, height: isize,
-        no_data_values: &Vec<Option<f64>>) -> Result<Dataset, Error> {
+        rasterband_count: isize, no_data_value: Option<f64>)
+        -> Result<Dataset, Error> {
     match gdal_type {
         GDALDataType::GDT_Byte => _init_dataset::<u8>(driver,
-            filename, width, height, no_data_values),
+            filename, width, height, rasterband_count, no_data_value),
         GDALDataType::GDT_Int16 => _init_dataset::<i16>(driver,
-            filename, width, height, no_data_values),
+            filename, width, height, rasterband_count, no_data_value),
         GDALDataType::GDT_UInt16 => _init_dataset::<u16>(driver,
-            filename, width, height, no_data_values),
+            filename, width, height, rasterband_count, no_data_value),
         _ => unimplemented!(),
     }
 }
 
 pub fn _init_dataset<T: Copy + GdalType + FromPrimitive>(
         driver: &Driver, filename: &str, width: isize, height: isize,
-        no_data_values: &Vec<Option<f64>>) -> Result<Dataset, Error> {
+        rasterband_count: isize, no_data_value: Option<f64>)
+        -> Result<Dataset, Error> {
     // create dataset
     let dataset = driver.create_with_band_type::<T>
-        (filename, width, height, no_data_values.len() as isize)?;
+        (filename, width, height, rasterband_count)?;
 
-    // iterate over rasterband no_data values
-    let (buf_width, buf_height) = (width as usize, height as usize);
-    for (i, no_data_value) in no_data_values.iter().enumerate() {
-        // if no_data value exists -> write to rasterband
-        if let Some(no_data_value) = no_data_value {
-            let buffer = Buffer::new((buf_width, buf_height), 
-                vec!(T::from_f64(*no_data_value); buf_width * buf_height));
+    // if no_data value exists -> write to rasterband
+    if let Some(no_data_value) = no_data_value {
+        let (buf_width, buf_height) = (width as usize, height as usize);
+        let buffer = Buffer::new((buf_width, buf_height), 
+            vec!(T::from_f64(no_data_value); buf_width * buf_height));
 
+        // iterate over rasterbands
+        for i in 0..rasterband_count {
             // write no_data buffer to rasterband
             let rasterband = dataset.rasterband(i as isize + 1)?;
-            rasterband.set_no_data_value(*no_data_value)?;
+            rasterband.set_no_data_value(no_data_value)?;
 
             rasterband.write::<T>((0, 0),
                 (buf_width, buf_height), &buffer)?;
