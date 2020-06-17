@@ -1,4 +1,5 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use failure::ResultExt;
 use gdal::raster::{Dataset, Driver};
 
 use std::io::{Read, Write};
@@ -31,13 +32,13 @@ pub fn read<T: Read>(reader: &mut T)
     // read rasterband count
     let rasterband_count = reader.read_u8()? as isize;
 
-    // initialize dataset - TODO error
-    let driver = Driver::get("Mem").unwrap();
+    // initialize dataset
+    let driver = Driver::get("Mem").compat()?;
     let dataset = crate::init_dataset(&driver, "unreachable", gdal_type,
-        width, height, rasterband_count, no_data_value).unwrap();
+        width, height, rasterband_count, no_data_value)?;
 
-    dataset.set_geo_transform(&transform).unwrap();
-    dataset.set_projection(&projection).unwrap();
+    dataset.set_geo_transform(&transform).compat()?;
+    dataset.set_projection(&projection).compat()?;
  
     // read rasterbands
     for i in 0..rasterband_count {
@@ -54,8 +55,8 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
     writer.write_u32::<BigEndian>(width as u32)?;
     writer.write_u32::<BigEndian>(height as u32)?;
 
-    // write geo transform - TODO error
-    let transform = dataset.geo_transform().unwrap();
+    // write geo transform
+    let transform = dataset.geo_transform().compat()?;
     for val in transform.iter() {
         writer.write_f64::<BigEndian>(*val)?;
     }
@@ -65,8 +66,8 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
     writer.write_u32::<BigEndian>(projection.len() as u32)?;
     writer.write(projection.as_bytes())?;
 
-    // write gdal type and no_data value - TODO error
-    let rasterband = dataset.rasterband(1).unwrap();
+    // write gdal type and no_data value
+    let rasterband = dataset.rasterband(1).compat()?;
     writer.write_u32::<BigEndian>(rasterband.band_type())?;
     match rasterband.no_data_value() {
         Some(value) => {

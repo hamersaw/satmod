@@ -1,5 +1,7 @@
-use gdal::errors::Error;
+use failure::ResultExt;
 use gdal::spatial_ref::CoordTransform;
+
+use std::error::Error;
 
 const GEOHASH_BOUNDS: (f64, f64, f64, f64) = (-180.0, 180.0, -90.0, 90.0);
 static GEOHASH32_CHARS: &'static [char] = &['0', '1', '2', '3', '4',
@@ -19,7 +21,7 @@ pub enum Geocode {
 
 impl Geocode {
     pub fn get_code(&self, x: f64, y: f64, precision: usize)
-            -> Result<String, Box<dyn std::error::Error>> {
+            -> Result<String, Box<dyn Error>> {
         // retreive geocode specific parameters
         let (mut min_x, mut max_x, mut min_y, mut max_y,
                 char_bits, codes) = match self {
@@ -145,7 +147,7 @@ pub fn get_window_bounds(min_x: f64, max_x: f64, min_y: f64, max_y: f64,
 
 pub fn transform_pixel(x: isize, y: isize, z: isize,
         transform: &[f64; 6], coord_transform: &CoordTransform)
-        -> Result<(f64, f64, f64), Error> {
+        -> Result<(f64, f64, f64), Box<dyn Error>> {
     let x_coord = transform[0] + (x as f64 * transform[1])
         + (y as f64 * transform[2]);
     let y_coord = transform[3] + (x as f64 * transform[4])
@@ -156,7 +158,7 @@ pub fn transform_pixel(x: isize, y: isize, z: isize,
 
 pub fn transform_pixels(pixels: &Vec<(isize, isize, isize)>,
         transform: &[f64; 6], coord_transform: &CoordTransform)
-        -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Error> {
+        -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Box<dyn Error>> {
     // convert pixels to coordinates
     let mut xs: Vec<f64> = pixels.iter().map(|(x, y, _)| {
         transform[0] + (*x as f64 * transform[1])
@@ -172,20 +174,21 @@ pub fn transform_pixels(pixels: &Vec<(isize, isize, isize)>,
         .map(|(_, _, z)| *z as f64).collect();
 
     // perform coordinate transform
-    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs)?;
+    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs).compat()?;
 
     Ok((xs, ys, zs))
 }
 
 pub fn transform_coord(x: f64, y: f64, z: f64,
-        coord_transform: &CoordTransform) -> Result<(f64, f64, f64), Error> {
+        coord_transform: &CoordTransform)
+        -> Result<(f64, f64, f64), Box<dyn Error>> {
     // insert items into buffer
     let mut xs = vec!(x);
     let mut ys = vec!(y);
     let mut zs = vec!(z);
 
     // transfrom coordinates
-    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs)?;
+    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs).compat()?;
 
     // return values
     Ok((xs[0], ys[0], zs[0]))

@@ -1,9 +1,10 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use gdal::errors::Error;
+use failure::ResultExt;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::raster::types::GdalType;
 use gdal_sys::GDALDataType;
 
+use std::error::Error;
 use std::io::{Read, Write};
 
 mod coordinate;
@@ -33,13 +34,13 @@ impl FromPrimitive for i16 {
     }
 }
 
-pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
+pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
     let (width, height) = dataset.size();
     let mut invalid_pixels = vec![true; width * height];
     
     // iterate over rasterbands
     for i in 0..dataset.count() {
-        let rasterband = dataset.rasterband(i+1)?;
+        let rasterband = dataset.rasterband(i+1).compat()?;
 
         match rasterband.band_type() {
             GDALDataType::GDT_Byte => _coverage::<u8>(dataset,
@@ -65,9 +66,9 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Error> {
 
 fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
         index: isize, invalid_pixels: &mut Vec<bool>,
-        null_value: T) -> Result<(), Error> {
+        null_value: T) -> Result<(), Box<dyn Error>> {
     // read rasterband data into buffer
-    let buffer = dataset.read_full_raster_as::<T>(index)?;
+    let buffer = dataset.read_full_raster_as::<T>(index).compat()?;
 
     // iterate over pixels
     for (i, pixel) in buffer.data.iter().enumerate() {
@@ -158,7 +159,7 @@ fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
 pub fn init_dataset(driver: &Driver, filename: &str,
         gdal_type: GDALDataType::Type, width: isize, height: isize,
         rasterband_count: isize, no_data_value: Option<f64>)
-        -> Result<Dataset, Error> {
+        -> Result<Dataset, Box<dyn Error>> {
     match gdal_type {
         GDALDataType::GDT_Byte => _init_dataset::<u8>(driver,
             filename, width, height, rasterband_count, no_data_value),
@@ -173,10 +174,10 @@ pub fn init_dataset(driver: &Driver, filename: &str,
 pub fn _init_dataset<T: Copy + GdalType + FromPrimitive>(
         driver: &Driver, filename: &str, width: isize, height: isize,
         rasterband_count: isize, no_data_value: Option<f64>)
-        -> Result<Dataset, Error> {
+        -> Result<Dataset, Box<dyn Error>> {
     // create dataset
     let dataset = driver.create_with_band_type::<T>
-        (filename, width, height, rasterband_count)?;
+        (filename, width, height, rasterband_count).compat()?;
 
     // if no_data value exists -> write to rasterband
     if let Some(no_data_value) = no_data_value {
@@ -187,11 +188,11 @@ pub fn _init_dataset<T: Copy + GdalType + FromPrimitive>(
         // iterate over rasterbands
         for i in 0..rasterband_count {
             // write no_data buffer to rasterband
-            let rasterband = dataset.rasterband(i as isize + 1)?;
-            rasterband.set_no_data_value(no_data_value)?;
+            let rasterband = dataset.rasterband(i as isize + 1).compat()?;
+            rasterband.set_no_data_value(no_data_value).compat()?;
 
             rasterband.write::<T>((0, 0),
-                (buf_width, buf_height), &buffer)?;
+                (buf_width, buf_height), &buffer).compat()?;
         }
     }
 
@@ -202,9 +203,8 @@ pub fn copy_raster(src_dataset: &Dataset, src_index: isize,
         src_window: (isize, isize), src_window_size: (usize, usize),
         dst_dataset: &Dataset, dst_index: isize, 
         dst_window: (isize, isize), dst_window_size: (usize, usize))
-        -> Result<(), Error> {
-    // TODO - ensure both rasters have same no_data value
-    match src_dataset.band_type(src_index)? {
+        -> Result<(), Box<dyn Error>> {
+    match src_dataset.band_type(src_index).compat()? {
         GDALDataType::GDT_Byte => _copy_raster::<u8>(src_dataset, 
             src_index, src_window, src_window_size, dst_dataset, 
             dst_index, dst_window, dst_window_size),
@@ -222,26 +222,26 @@ fn _copy_raster<T: Copy + GdalType>(src_dataset: &Dataset,
         src_index: isize, src_window: (isize, isize), 
         src_window_size: (usize, usize), dst_dataset: &Dataset,
         dst_index: isize, dst_window: (isize, isize), 
-        dst_window_size: (usize, usize)) -> Result<(), Error> {
+        dst_window_size: (usize, usize)) -> Result<(), Box<dyn Error>> {
     // read rasterband data into buffer
-    let src_rasterband = src_dataset.rasterband(src_index)?;
+    let src_rasterband = src_dataset.rasterband(src_index).compat()?;
     let buffer = src_rasterband.read_as::<T>(src_window,
-        src_window_size, dst_window_size)?;
+        src_window_size, dst_window_size).compat()?;
 
     // write to new rasterband
-    let dst_rasterband = dst_dataset.rasterband(dst_index)?;
-    dst_rasterband.write::<T>(dst_window, dst_window_size, &buffer)?;
+    let dst_rasterband = dst_dataset.rasterband(dst_index).compat()?;
+    dst_rasterband.write::<T>(dst_window, dst_window_size, &buffer).compat()?;
 
     // maintain rasterband metadata
     if let Some(value) = src_rasterband.no_data_value() {
-        dst_rasterband.set_no_data_value(value)?;
+        dst_rasterband.set_no_data_value(value).compat()?;
     }
 
     Ok(())
 }
 
 fn read_raster<T: Read>(dataset: &Dataset, index: isize,
-        reader: &mut T) -> Result<(), Box<dyn std::error::Error>> {
+        reader: &mut T) -> Result<(), Box<dyn Error>> {
     // compute raster size
     let (width, height) = dataset.size();
     let size = (width * height) as usize;
@@ -257,7 +257,7 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
                 height as usize), data);
 
             dataset.write_raster::<u8>(index, (0, 0), (width as usize,
-                height as usize), &buffer).unwrap();
+                height as usize), &buffer).compat()?;
         },
         GDALDataType::GDT_Int16 => {
             // read rasterband
@@ -270,7 +270,7 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
                 height as usize), data);
 
             dataset.write_raster::<i16>(index, (0, 0), (width as usize,
-                height as usize), &buffer).unwrap();
+                height as usize), &buffer).compat()?;
         },
         GDALDataType::GDT_UInt16 => {
             // read rasterband
@@ -283,7 +283,7 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
                 height as usize), data);
 
             dataset.write_raster::<u16>(index, (0, 0), (width as usize,
-                height as usize), &buffer).unwrap();
+                height as usize), &buffer).compat()?;
         },
         _ => unimplemented!(),
     }
@@ -292,27 +292,26 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
 }
 
 fn write_raster<T: Write>(dataset: &Dataset, index: isize,
-        writer: &mut T) -> Result<(), Box<dyn std::error::Error>> {
-    // TODO - error
-    let gdal_type = dataset.band_type(index).unwrap();
+        writer: &mut T) -> Result<(), Box<dyn Error>> {
+    let gdal_type = dataset.band_type(index).compat()?;
     writer.write_u32::<BigEndian>(gdal_type)?;
 
     match gdal_type {
         GDALDataType::GDT_Byte => {
             let buffer = dataset
-                .read_full_raster_as::<u8>(index).unwrap();
+                .read_full_raster_as::<u8>(index).compat()?;
             writer.write(&buffer.data)?;
         },
         GDALDataType::GDT_Int16 => {
             let buffer = dataset
-                .read_full_raster_as::<i16>(index).unwrap();
+                .read_full_raster_as::<i16>(index).compat()?;
             for pixel in buffer.data {
                 writer.write_i16::<BigEndian>(pixel)?;
             }
         },
         GDALDataType::GDT_UInt16 => {
             let buffer = dataset
-                .read_full_raster_as::<u16>(index).unwrap();
+                .read_full_raster_as::<u16>(index).compat()?;
             for pixel in buffer.data {
                 writer.write_u16::<BigEndian>(pixel)?;
             }

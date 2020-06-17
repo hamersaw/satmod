@@ -1,8 +1,10 @@
-use gdal::errors::Error;
+use failure::ResultExt;
 use gdal::raster::{Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use crate::prelude::Geocode;
+
+use std::error::Error;
 
 pub struct DatasetSplit<'a> {
     buf_height: usize,
@@ -29,28 +31,28 @@ impl<'a> DatasetSplit<'a> {
         (self.min_cx, self.max_cx, self.min_cy, self.max_cy)
     }
 
-    pub fn dataset(&self) -> Result<Dataset, Error> {
+    pub fn dataset(&self) -> Result<Dataset, Box<dyn Error>> {
         // open memory driver
-        let driver = Driver::get("Mem")?;
+        let driver = Driver::get("Mem").compat()?;
 
         // initialize split Dataset
-        let rasterband = self.dataset.rasterband(1)?;
+        let rasterband = self.dataset.rasterband(1).compat()?;
         let gdal_type = rasterband.band_type();
         let no_data_value = rasterband.no_data_value();
 
         let split_dataset = crate::init_dataset(&driver,
             "unreachable", gdal_type, self.dst_width, self.dst_height,
-            self.dataset.count(), no_data_value).unwrap();
+            self.dataset.count(), no_data_value)?;
 
         // modify transform
-        let mut transform = self.dataset.geo_transform()?;
+        let mut transform = self.dataset.geo_transform().compat()?;
         transform[0] = transform[0] + (self.min_px as f64 * transform[1])
             + (self.min_py as f64 * transform[2]);
         transform[3] = transform[3] + (self.min_px as f64 * transform[4])
             + (self.min_py as f64 * transform[5]);
 
-        split_dataset.set_geo_transform(&transform)?;
-        split_dataset.set_projection(&self.dataset.projection())?;
+        split_dataset.set_geo_transform(&transform).compat()?;
+        split_dataset.set_projection(&self.dataset.projection()).compat()?;
 
         // copy rasterband data to new image
         for i in 0..self.dataset.count() {
@@ -71,18 +73,19 @@ impl<'a> DatasetSplit<'a> {
 }
 
 pub fn split(dataset: &Dataset, geocode: Geocode,
-        precision: usize) -> Result<Vec<DatasetSplit>, Error> {
+        precision: usize) -> Result<Vec<DatasetSplit>, Box<dyn Error>> {
     // initialize transform array and CoordTransform's from dataset
-    let transform = dataset.geo_transform()?;
+    let transform = dataset.geo_transform().compat()?;
 
-    let src_spatial_ref = SpatialRef::from_wkt(&dataset.projection())?;
+    let src_spatial_ref = SpatialRef::from_wkt(
+        &dataset.projection()).compat()?;
     let dst_spatial_ref = SpatialRef::from_epsg(
-        geocode.get_epsg_code())?;
+        geocode.get_epsg_code()).compat()?;
 
-    let coord_transform = 
-        CoordTransform::new(&src_spatial_ref, &dst_spatial_ref)?;
-    let reverse_transform =
-        CoordTransform::new(&dst_spatial_ref, &src_spatial_ref)?;
+    let coord_transform = CoordTransform::new(
+        &src_spatial_ref, &dst_spatial_ref).compat()?;
+    let reverse_transform = CoordTransform::new(
+        &dst_spatial_ref, &src_spatial_ref).compat()?;
 
     // compute minimum and maximum x and y coordinates
     let (src_width, src_height) = dataset.size();
