@@ -41,17 +41,15 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
     // iterate over rasterbands
     for i in 0..dataset.count() {
         let rasterband = dataset.rasterband(i+1).compat()?;
+        let no_data_value = rasterband.no_data_value().unwrap_or(0.0);
 
         match rasterband.band_type() {
             GDALDataType::GDT_Byte => _coverage::<u8>(dataset,
-                i+1, &mut invalid_pixels,
-                rasterband.no_data_value().unwrap_or(0.0) as u8)?,
+                i+1, &mut invalid_pixels, no_data_value)?,
             GDALDataType::GDT_Int16 => _coverage::<i16>(dataset,
-                i+1, &mut invalid_pixels,
-                rasterband.no_data_value().unwrap_or(0.0) as i16)?,
+                i+1, &mut invalid_pixels, no_data_value)?,
             GDALDataType::GDT_UInt16 => _coverage::<u16>(dataset,
-                i+1, &mut invalid_pixels,
-                rasterband.no_data_value().unwrap_or(0.0) as u16)?,
+                i+1, &mut invalid_pixels, no_data_value)?,
             _ => unimplemented!(),
         }
     }
@@ -64,15 +62,17 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
     Ok((pixel_count - invalid_count) / pixel_count)
 }
 
-fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
-        index: isize, invalid_pixels: &mut Vec<bool>,
-        null_value: T) -> Result<(), Box<dyn Error>> {
+fn _coverage<T: Copy + FromPrimitive + GdalType + PartialEq>(
+        dataset: &Dataset, index: isize, invalid_pixels: &mut Vec<bool>,
+        no_data_value: f64) -> Result<(), Box<dyn Error>> {
+    let no_data_value = T::from_f64(no_data_value);
+
     // read rasterband data into buffer
     let buffer = dataset.read_full_raster_as::<T>(index).compat()?;
 
     // iterate over pixels
     for (i, pixel) in buffer.data.iter().enumerate() {
-        if *pixel != null_value {
+        if *pixel != no_data_value {
             invalid_pixels[i] = false;
         }
     }
@@ -80,24 +80,30 @@ fn _coverage<T: Copy + GdalType + PartialEq>(dataset: &Dataset,
     Ok(())
 }
 
-/*pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Error> {
-    // TODO - test datatype for each dataset
-    match datasets[0].band_type(1)? {
-        GDALDataType::GDT_Byte => _fill::<u8>(datasets, 0u8),
-        GDALDataType::GDT_Int16 => _fill::<i16>(datasets, 0i16),
-        GDALDataType::GDT_UInt16 => _fill::<u16>(datasets, 0u16),
+pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Box<dyn Error>> {
+    let rasterband = datasets[0].rasterband(1).compat()?;
+    let no_data_value = rasterband.no_data_value();
+
+    match rasterband.band_type() {
+        GDALDataType::GDT_Byte => _fill::<u8>(datasets, no_data_value),
+        GDALDataType::GDT_Int16 => 
+            _fill::<i16>(datasets, no_data_value),
+        GDALDataType::GDT_UInt16 =>
+            _fill::<u16>(datasets, no_data_value),
         _ => unimplemented!(),
     }
 }
 
-fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
-        null_value: T) -> Result<Dataset, Error> {
+fn _fill<T: Copy + FromPrimitive + GdalType + PartialEq>(
+        datasets: &Vec<Dataset>, no_data_option: Option<f64>)
+        -> Result<Dataset, Box<dyn Error>> {
+    let no_data_value = T::from_f64(no_data_option.unwrap_or(0.0));
     let dataset = &datasets[0];
 
     // read first dataset rasters
     let mut rasters = Vec::new();
     for i in 0..dataset.count() {
-        let raster = dataset.read_full_raster_as::<T>(i + 1).unwrap();
+        let raster = dataset.read_full_raster_as::<T>(i + 1).compat()?;
         rasters.push(raster);
     }
 
@@ -109,7 +115,7 @@ fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
         let mut fill_rasters = Vec::new();
         for j in 0..fill_dataset.count() {
             let fill_raster = fill_dataset
-                .read_full_raster_as::<T>(j+1).unwrap();
+                .read_full_raster_as::<T>(j+1).compat()?;
             fill_rasters.push(fill_raster);
         }
 
@@ -123,7 +129,7 @@ fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
             // check if rasterband pixel is valid
             let mut valid = false;
             for k in 0..rasters.len() {
-                valid = valid || rasters[k].data[j] != null_value;
+                valid = valid || rasters[k].data[j] != no_data_value;
             }
 
             // copy pixels from fill_raster bands
@@ -137,24 +143,24 @@ fn _fill<T: Copy + GdalType + PartialEq>(datasets: &Vec<Dataset>,
 
     // open memory dataset
     let (width, height) = dataset.size();
-    let driver = Driver::get("Mem").unwrap();
-    let mem_dataset = crate::init_dataset(&driver,
-        "unreachable", T::gdal_type(), width as isize,
-        height as isize, rasters.len() as isize)?;
+    let driver = Driver::get("Mem").compat()?;
+    let mem_dataset = crate::init_dataset(&driver, "unreachable",
+        T::gdal_type(), width as isize, height as isize,
+        rasters.len() as isize, no_data_option)?;
 
     mem_dataset.set_geo_transform(
-        &dataset.geo_transform().unwrap()).unwrap();
+        &dataset.geo_transform().compat()?).compat()?;
     mem_dataset.set_projection(
-        &dataset.projection()).unwrap();
+        &dataset.projection()).compat()?;
 
-    // set rasterbands - TODO error
+    // set rasterbands
     for (i, raster) in rasters.iter().enumerate() {
         mem_dataset.write_raster::<T>((i + 1) as isize,
-            (0, 0), (width, height), &raster).unwrap();
+            (0, 0), (width, height), &raster).compat()?;
     }
 
     Ok(mem_dataset)
-}*/
+}
 
 pub fn init_dataset(driver: &Driver, filename: &str,
         gdal_type: GDALDataType::Type, width: isize, height: isize,
@@ -171,7 +177,7 @@ pub fn init_dataset(driver: &Driver, filename: &str,
     }
 }
 
-pub fn _init_dataset<T: Copy + GdalType + FromPrimitive>(
+pub fn _init_dataset<T: Copy + FromPrimitive + GdalType>(
         driver: &Driver, filename: &str, width: isize, height: isize,
         rasterband_count: isize, no_data_value: Option<f64>)
         -> Result<Dataset, Box<dyn Error>> {
