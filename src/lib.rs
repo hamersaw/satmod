@@ -1,11 +1,9 @@
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use failure::ResultExt;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::raster::types::GdalType;
 use gdal_sys::GDALDataType;
 
 use std::error::Error;
-use std::io::{Read, Write};
 
 mod coordinate;
 pub mod prelude;
@@ -241,88 +239,6 @@ fn _copy_raster<T: Copy + GdalType>(src_dataset: &Dataset,
     // maintain rasterband metadata
     if let Some(value) = src_rasterband.no_data_value() {
         dst_rasterband.set_no_data_value(value).compat()?;
-    }
-
-    Ok(())
-}
-
-fn read_raster<T: Read>(dataset: &Dataset, index: isize,
-        reader: &mut T) -> Result<(), Box<dyn Error>> {
-    // compute raster size
-    let (width, height) = dataset.size();
-    let size = (width * height) as usize;
-
-    // read raster type
-    let gdal_type = reader.read_u32::<BigEndian>()?;
-    match gdal_type  {
-        GDALDataType::GDT_Byte => {
-            let mut data = vec![0u8; size];
-            reader.read_exact(&mut data)?;
-
-            let buffer = Buffer::new((width as usize,
-                height as usize), data);
-
-            dataset.write_raster::<u8>(index, (0, 0), (width as usize,
-                height as usize), &buffer).compat()?;
-        },
-        GDALDataType::GDT_Int16 => {
-            // read rasterband
-            let mut data = Vec::new();
-            for _ in 0..size {
-                data.push(reader.read_i16::<BigEndian>()?);
-            }
-
-            let buffer = Buffer::new((width as usize,
-                height as usize), data);
-
-            dataset.write_raster::<i16>(index, (0, 0), (width as usize,
-                height as usize), &buffer).compat()?;
-        },
-        GDALDataType::GDT_UInt16 => {
-            // read rasterband
-            let mut data = Vec::new();
-            for _ in 0..size {
-                data.push(reader.read_u16::<BigEndian>()?);
-            }
-
-            let buffer = Buffer::new((width as usize,
-                height as usize), data);
-
-            dataset.write_raster::<u16>(index, (0, 0), (width as usize,
-                height as usize), &buffer).compat()?;
-        },
-        _ => unimplemented!(),
-    }
-
-    Ok(())
-}
-
-fn write_raster<T: Write>(dataset: &Dataset, index: isize,
-        writer: &mut T) -> Result<(), Box<dyn Error>> {
-    let gdal_type = dataset.band_type(index).compat()?;
-    writer.write_u32::<BigEndian>(gdal_type)?;
-
-    match gdal_type {
-        GDALDataType::GDT_Byte => {
-            let buffer = dataset
-                .read_full_raster_as::<u8>(index).compat()?;
-            writer.write(&buffer.data)?;
-        },
-        GDALDataType::GDT_Int16 => {
-            let buffer = dataset
-                .read_full_raster_as::<i16>(index).compat()?;
-            for pixel in buffer.data {
-                writer.write_i16::<BigEndian>(pixel)?;
-            }
-        },
-        GDALDataType::GDT_UInt16 => {
-            let buffer = dataset
-                .read_full_raster_as::<u16>(index).compat()?;
-            for pixel in buffer.data {
-                writer.write_u16::<BigEndian>(pixel)?;
-            }
-        },
-        _ => unimplemented!(),
     }
 
     Ok(())
