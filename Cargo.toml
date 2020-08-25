@@ -10,5 +10,5 @@ edition = "2018"
 byteorder = "1"
 failure = "0.1"
 #gdal = "0.6"
-gdal = { path = "/home/hamersaw/Projects/gdal" }
-gdal-sys = { path = "/home/hamersaw/Projects/gdal/gdal-sys" }
+gdal = { path = "../gdal" }
+gdal-sys = { path = "../gdal/gdal-sys" }
