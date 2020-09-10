@@ -13,7 +13,7 @@ const QUADTILE_BOUNDS: (f64, f64, f64, f64) = (-20037508.342789248,
     20037508.342789248, -20037508.342789248, 20037508.342789248);
 static QUADTILE_CHARS: &'static [char] = &['a', 'b', 'c', 'd'];
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum Geocode {
     Geohash,
     QuadTile,
