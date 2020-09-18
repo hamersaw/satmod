@@ -1,6 +1,6 @@
 [package]
 name = "st-image"
-version = "0.3.5"
+version = "0.3.6"
 authors = ["Daniel Rammer <hamersaw@protonmail.com>"]
 edition = "2018"
 
@@ -9,6 +9,5 @@ edition = "2018"
 [dependencies]
 byteorder = "1"
 failure = "0.1"
-#gdal = "0.6"
 gdal = { path = "../gdal" }
 gdal-sys = { path = "../gdal/gdal-sys" }

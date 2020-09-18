@@ -11,7 +11,7 @@ static GEOHASH32_CHARS: &'static [char] = &['0', '1', '2', '3', '4',
 
 const QUADTILE_BOUNDS: (f64, f64, f64, f64) = (-20037508.342789248,
     20037508.342789248, -20037508.342789248, 20037508.342789248);
-static QUADTILE_CHARS: &'static [char] = &['a', 'b', 'c', 'd'];
+static QUADTILE_CHARS: &'static [char] = &['3', '1', '2', '0'];
 
 #[derive(Clone, Copy, Debug)]
 pub enum Geocode {
