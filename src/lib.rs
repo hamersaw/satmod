@@ -1,15 +1,13 @@
 use failure::ResultExt;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::raster::types::GdalType;
-use gdal::spatial_ref::{CoordTransform, SpatialRef};
 use gdal_sys::GDALDataType;
 
 use std::error::Error;
 
-mod coordinate;
-pub mod prelude;
-mod serialize;
-mod transform;
+pub mod coordinate;
+pub mod serialize;
+pub mod transform;
 
 pub trait FromPrimitive {
     fn from_f64(value: f64) -> Self;
@@ -33,39 +31,7 @@ impl FromPrimitive for i16 {
     }
 }
 
-pub fn bounds(dataset: &Dataset, epsg_code: u32)
-        -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
-    // initialize transform array and CoordTransform's from dataset
-    let transform = dataset.geo_transform().compat()?;
-
-    let src_spatial_ref = SpatialRef::from_wkt(
-        &dataset.projection()).compat()?;
-    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code).compat()?;
-
-    let coord_transform = CoordTransform::new(
-        &src_spatial_ref, &dst_spatial_ref).compat()?;
-
-    // compute minimum and maximum x and y coordinates
-    let (src_width, src_height) = dataset.size();
-    let corner_pixels = vec![
-        (0, 0, 0),
-        (src_width as isize, 0, 0),
-        (0, src_height as isize, 0),
-        (src_width as isize, src_height as isize, 0)
-    ];
-
-    let (xs, ys, _) = crate::prelude::transform_pixels(
-        &corner_pixels, &transform, &coord_transform)?;
-
-    let min_cx = xs.iter().cloned().fold(1./0., f64::min);
-    let max_cx = xs.iter().cloned().fold(0./0., f64::max);
-    let min_cy = ys.iter().cloned().fold(1./0., f64::min);
-    let max_cy = ys.iter().cloned().fold(0./0., f64::max);
-
-    Ok((min_cx, max_cx, min_cy, max_cy))
-}
-
-pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
+pub fn get_coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
     let (width, height) = dataset.size();
     let mut invalid_pixels = vec![true; width * height];
     
@@ -75,11 +41,11 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
         let no_data_value = rasterband.no_data_value().unwrap_or(0.0);
 
         match rasterband.band_type() {
-            GDALDataType::GDT_Byte => _coverage::<u8>(dataset,
+            GDALDataType::GDT_Byte => _get_coverage::<u8>(dataset,
                 i+1, &mut invalid_pixels, no_data_value)?,
-            GDALDataType::GDT_Int16 => _coverage::<i16>(dataset,
+            GDALDataType::GDT_Int16 => _get_coverage::<i16>(dataset,
                 i+1, &mut invalid_pixels, no_data_value)?,
-            GDALDataType::GDT_UInt16 => _coverage::<u16>(dataset,
+            GDALDataType::GDT_UInt16 => _get_coverage::<u16>(dataset,
                 i+1, &mut invalid_pixels, no_data_value)?,
             _ => unimplemented!(),
         }
@@ -93,7 +59,7 @@ pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
     Ok((pixel_count - invalid_count) / pixel_count)
 }
 
-fn _coverage<T: Copy + FromPrimitive + GdalType + PartialEq>(
+fn _get_coverage<T: Copy + FromPrimitive + GdalType + PartialEq>(
         dataset: &Dataset, index: isize, invalid_pixels: &mut Vec<bool>,
         no_data_value: f64) -> Result<(), Box<dyn Error>> {
     let no_data_value = T::from_f64(no_data_value);

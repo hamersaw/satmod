@@ -1,5 +1,6 @@
 use failure::ResultExt;
-use gdal::spatial_ref::CoordTransform;
+use gdal::raster::Dataset;
+use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use std::error::Error;
 
@@ -20,7 +21,13 @@ pub enum Geocode {
 }
 
 impl Geocode {
-    pub fn get_code(&self, x: f64, y: f64, precision: usize)
+    pub fn decode(&self, _value: &str)
+            -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
+        // TODO - implement
+        unimplemented!();
+    }
+
+    pub fn encode(&self, x: f64, y: f64, precision: usize)
             -> Result<String, Box<dyn Error>> {
         // retreive geocode specific parameters
         let (mut min_x, mut max_x, mut min_y, mut max_y,
@@ -112,7 +119,39 @@ impl Geocode {
     }
 }
 
-pub fn get_window_bounds(min_x: f64, max_x: f64, min_y: f64, max_y: f64,
+pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
+        -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
+    // initialize transform array and CoordTransform's from dataset
+    let transform = dataset.geo_transform().compat()?;
+
+    let src_spatial_ref = SpatialRef::from_wkt(
+        &dataset.projection()).compat()?;
+    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code).compat()?;
+
+    let coord_transform = CoordTransform::new(
+        &src_spatial_ref, &dst_spatial_ref).compat()?;
+
+    // compute minimum and maximum x and y coordinates
+    let (src_width, src_height) = dataset.size();
+    let corner_pixels = vec![
+        (0, 0, 0),
+        (src_width as isize, 0, 0),
+        (0, src_height as isize, 0),
+        (src_width as isize, src_height as isize, 0)
+    ];
+
+    let (xs, ys, _) = transform_pixels(&corner_pixels,
+        &transform, &coord_transform)?;
+
+    let min_cx = xs.iter().cloned().fold(1./0., f64::min);
+    let max_cx = xs.iter().cloned().fold(0./0., f64::max);
+    let min_cy = ys.iter().cloned().fold(1./0., f64::min);
+    let max_cy = ys.iter().cloned().fold(0./0., f64::max);
+
+    Ok((min_cx, max_cx, min_cy, max_cy))
+}
+
+pub fn get_windows(min_x: f64, max_x: f64, min_y: f64, max_y: f64,
         x_interval: f64, y_interval: f64) -> Vec<(f64, f64, f64, f64)> {
     // compute indices for minimum and maximum coordinates
     let min_x_index = (min_x / x_interval).floor() as i32;

@@ -4,7 +4,7 @@ use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use std::error::Error;
 
-pub fn merge(datasets: &Vec<Dataset>)
+pub fn merge(_datasets: &Vec<Dataset>)
         -> Result<Dataset, Box<dyn Error>> {
     // TODO - implement
     unimplemented!();
@@ -172,7 +172,7 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::Geocode;
+    use crate::coordinate::Geocode;
 
     use gdal::raster::{Dataset, Driver};
     use gdal_sys::GDALDataType;
@@ -193,9 +193,10 @@ mod tests {
         let (x_interval, y_interval) = geocode.get_intervals(4);
 
         let (image_min_cx, image_max_cx, image_min_cy, image_max_cy) =
-            crate::bounds(&dataset, epsg_code).expect("get bounds");
+            crate::coordinate::get_bounds(&dataset, epsg_code)
+                .expect("get bounds");
 
-        let window_bounds = crate::prelude::get_window_bounds(
+        let window_bounds = crate::coordinate::get_windows(
             image_min_cx, image_max_cx, image_min_cy, image_max_cy,
                 x_interval, y_interval);
 
@@ -205,7 +206,7 @@ mod tests {
         // split dataset along geohash boundaries
         let mut count = 0;
         for (min_cx, max_cx, min_cy, max_cy) in window_bounds {
-            let split_dataset = match crate::prelude::split(&dataset,
+            let split_dataset = match crate::transform::split(&dataset,
                     min_cx, max_cx, min_cy, max_cy, epsg_code) {
                 Ok(split_dataset) => split_dataset,
                 Err(e) => continue,
