@@ -1,6 +1,7 @@
 use failure::ResultExt;
 use gdal::raster::{Buffer, Dataset, Driver};
 use gdal::raster::types::GdalType;
+use gdal::spatial_ref::{CoordTransform, SpatialRef};
 use gdal_sys::GDALDataType;
 
 use std::error::Error;
@@ -30,6 +31,38 @@ impl FromPrimitive for i16 {
     fn from_f64(value: f64) -> Self {
         value as i16
     }
+}
+
+pub fn bounds(dataset: &Dataset, epsg_code: u32)
+        -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
+    // initialize transform array and CoordTransform's from dataset
+    let transform = dataset.geo_transform().compat()?;
+
+    let src_spatial_ref = SpatialRef::from_wkt(
+        &dataset.projection()).compat()?;
+    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code).compat()?;
+
+    let coord_transform = CoordTransform::new(
+        &src_spatial_ref, &dst_spatial_ref).compat()?;
+
+    // compute minimum and maximum x and y coordinates
+    let (src_width, src_height) = dataset.size();
+    let corner_pixels = vec![
+        (0, 0, 0),
+        (src_width as isize, 0, 0),
+        (0, src_height as isize, 0),
+        (src_width as isize, src_height as isize, 0)
+    ];
+
+    let (xs, ys, _) = crate::prelude::transform_pixels(
+        &corner_pixels, &transform, &coord_transform)?;
+
+    let min_cx = xs.iter().cloned().fold(1./0., f64::min);
+    let max_cx = xs.iter().cloned().fold(0./0., f64::max);
+    let min_cy = ys.iter().cloned().fold(1./0., f64::min);
+    let max_cy = ys.iter().cloned().fold(0./0., f64::max);
+
+    Ok((min_cx, max_cx, min_cy, max_cy))
 }
 
 pub fn coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
