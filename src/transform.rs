@@ -4,16 +4,102 @@ use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use std::error::Error;
 
-pub fn merge(_datasets: &Vec<Dataset>)
+pub fn merge(datasets: &Vec<Dataset>)
         -> Result<Dataset, Box<dyn Error>> {
-    // TODO - implement
-    unimplemented!();
+    // TODO - ensure datasets are in same spatial reference system
+
+    // find minimum and maximum coordinates
+    let mut min_cx = f64::MAX;
+    let mut max_cx = f64::MIN;
+    let mut min_cy = f64::MAX;
+    let mut max_cy = f64::MIN;
+
+    for dataset in datasets.iter() {
+        // TODO ensure transforms match
+
+        let transform = dataset.geo_transform().compat()?;
+        let (src_width, src_height) = dataset.size();
+        let (width, height) = (src_width as f64, src_height as f64);
+
+        let image_min_cx = transform[0];
+        let image_max_cx = transform[0] + (width * transform[1])
+            + (height * transform[2]);
+        let image_min_cy = transform[3] + (width * transform[4])
+            + (height * transform[5]);
+        let image_max_cy = transform[3];
+
+        min_cx = min_cx.min(image_min_cx);
+        max_cx = max_cx.max(image_max_cx);
+        min_cy = min_cy.min(image_min_cy);
+        max_cy = max_cy.max(image_max_cy);
+    }
+
+    //println!("DST IMAGE BOUNDS {} {} {} {}",
+    //    min_cx, max_cx, min_cy, max_cy);
+
+    // compute merged image dimensions
+    let transform = datasets[0].geo_transform().compat()?;
+    let min_px = (min_cx - transform[0]) / transform[1];
+    let max_px = (max_cx - transform[0]) / transform[1];
+    let min_py = (min_cy - transform[3]) / transform[5] * -1.0;
+    let max_py = (max_cy - transform[3]) / transform[5] * -1.0;
+
+    //println!("  PIXELS {} {} {} {}", min_px, max_px, min_py, max_py);
+
+    let dst_width = (max_px - min_px) as isize;
+    let dst_height = (max_py - min_py) as isize;
+    //println!("DST IMAGE DIMENSIONS {} {}", dst_width, dst_height);
+
+    // open memory driver
+    let driver = Driver::get("Mem").compat()?;
+
+    // initialize merge Dataset
+    let rasterband = datasets[0].rasterband(1).compat()?;
+    let gdal_type = rasterband.band_type();
+    let no_data_value = rasterband.no_data_value();
+
+    let merge_dataset = crate::init_dataset(&driver,
+        "unreachable", gdal_type, dst_width, dst_height,
+        datasets[0].count(), no_data_value)?;
+
+    // modify transform
+    let mut merge_transform = datasets[0].geo_transform().compat()?;
+    merge_transform[0] = min_cx;
+    merge_transform[3] = max_cy;
+
+    merge_dataset.set_geo_transform(&merge_transform).compat()?;
+    merge_dataset.set_projection(&datasets[0].projection()).compat()?;
+
+    // copy source rasters
+    for dataset in datasets.iter() {
+        // compute raster offsets
+        let transform = dataset.geo_transform().compat()?;
+        let (src_width, src_height) = dataset.size();
+
+        let dst_x_offset = ((transform[0] - merge_transform[0])
+            / merge_transform[1]) as isize;
+        let dst_y_offset = ((transform[3] - merge_transform[3])
+            / merge_transform[5]) as isize;
+
+        // copy all rasters
+        for i in 0..dataset.count() {
+            crate::copy_raster(dataset, i+1, 
+                (0, 0),
+                (src_width, src_height),
+                &merge_dataset, i+1,
+                (dst_x_offset, dst_y_offset), 
+                (src_width, src_height))?;
+        }
+    }
+    
+    Ok(merge_dataset)
 }
 
 pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         max_cy: f64, epsg_code: u32) -> Result<Dataset, Box<dyn Error>> {
     // initialize transform array and CoordTransform's from dataset
     let transform = dataset.geo_transform().compat()?;
+    let (src_width, src_height) = dataset.size();
 
     let src_spatial_ref = SpatialRef::from_wkt(
         &dataset.projection()).compat()?;
@@ -23,8 +109,6 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         &src_spatial_ref, &dst_spatial_ref).compat()?;
     let reverse_transform = CoordTransform::new(
         &dst_spatial_ref, &src_spatial_ref).compat()?;
-
-    let (src_width, src_height) = dataset.size();
 
     // compute center point pixels
     let mid_cx = (min_cx + max_cx) / 2.0;
@@ -177,14 +261,34 @@ mod tests {
     use gdal::raster::{Dataset, Driver};
     use gdal_sys::GDALDataType;
 
-    use std::collections::BTreeMap;
-    use std::io::Cursor;
     use std::path::Path;
 
     #[test]
-    fn image_geohash_split() {
+    fn transform_merge() {
+        // read in datasets
+        let mut datasets = Vec::new();
+        for entry in std::fs::read_dir("examples/split")
+                .expect("read dir") {
+            let entry = entry.expect("parse entry");
+
+            let dataset = Dataset::open(&entry.path())
+                .expect("dataset open");
+            datasets.push(dataset);
+        }
+
+        // merge datasets
+        let dataset = crate::transform::merge(&datasets).expect("merge");
+
+        // open gtiff driver
+        //let driver = Driver::get("GTiff").expect("get driver");
+        //dataset.create_copy(&driver, "/tmp/merge.tif")
+        //    .expect("dataset copy");
+    }
+
+    #[test]
+    fn transform_split_geohash4() {
         // read dataset
-        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
+        let path = Path::new("examples/full/L1C_T13TDE_A003313_20171024T175403");
         let dataset = Dataset::open(path).expect("dataset open");
 
         // compute geohash window boundaries for dataset
@@ -209,12 +313,12 @@ mod tests {
             let split_dataset = match crate::transform::split(&dataset,
                     min_cx, max_cx, min_cy, max_cy, epsg_code) {
                 Ok(split_dataset) => split_dataset,
-                Err(e) => continue,
+                Err(_) => continue,
             };
 
             // copy memory datasets to gtiff files
             //split_dataset.create_copy(&driver,
-            //    &format!("/tmp/st-image-{}.tif", count))
+            //    &format!("examples/split/st-image-{}.tif", count))
             //    .expect("dataset copy");
 
             // compute pixel coverage over split image
