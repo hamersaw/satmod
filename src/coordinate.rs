@@ -1,5 +1,4 @@
-use failure::ResultExt;
-use gdal::raster::Dataset;
+use gdal::Dataset;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use std::error::Error;
@@ -23,8 +22,7 @@ pub enum Geocode {
 impl Geocode {
     pub fn decode(&self, _value: &str)
             -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
-        // TODO - implement
-        unimplemented!();
+        unimplemented!(); // TODO - implement
     }
 
     pub fn encode(&self, x: f64, y: f64, precision: usize)
@@ -122,17 +120,17 @@ impl Geocode {
 pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
         -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
     // initialize transform array and CoordTransform's from dataset
-    let transform = dataset.geo_transform().compat()?;
+    let transform = dataset.geo_transform()?;
 
     let src_spatial_ref = SpatialRef::from_wkt(
-        &dataset.projection()).compat()?;
-    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code).compat()?;
+        &dataset.projection())?;
+    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
 
     let coord_transform = CoordTransform::new(
-        &src_spatial_ref, &dst_spatial_ref).compat()?;
+        &src_spatial_ref, &dst_spatial_ref)?;
 
     // compute minimum and maximum x and y coordinates
-    let (src_width, src_height) = dataset.size();
+    let (src_width, src_height) = dataset.raster_size();
     let corner_pixels = vec![
         (0, 0, 0),
         (src_width as isize, 0, 0),
@@ -213,7 +211,7 @@ pub fn transform_pixels(pixels: &Vec<(isize, isize, isize)>,
         .map(|(_, _, z)| *z as f64).collect();
 
     // perform coordinate transform
-    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs).compat()?;
+    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs)?;
 
     Ok((xs, ys, zs))
 }
@@ -227,7 +225,7 @@ pub fn transform_coord(x: f64, y: f64, z: f64,
     let mut zs = vec!(z);
 
     // transfrom coordinates
-    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs).compat()?;
+    coord_transform.transform_coords(&mut xs, &mut ys, &mut zs)?;
 
     // return values
     Ok((xs[0], ys[0], zs[0]))
@@ -235,68 +233,142 @@ pub fn transform_coord(x: f64, y: f64, z: f64,
 
 #[cfg(test)]
 mod tests {
-    use gdal::raster::Dataset;
+    use super::Geocode;
+
     use gdal::spatial_ref::{CoordTransform, SpatialRef};
+    use gdal_sys::OSRAxisMappingStrategy;
 
-    use std::path::Path;
-
-    /*#[test]
-    fn get_geohash_intervals() {
-        println!("{:?}", super::Geocode::Geohash
-            .get_code(-105.0208241, 40.5860239, 5));
-    }*/
-
-    /*#[test]
-    fn transform_pixel() {
-        // read dataset
-        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
-        let dataset = Dataset::open(path).expect("dataset open");
-
-        // initialize transform and CoordTransform
-        let transform = dataset.geo_transform().expect("get transform");
-
-        let src_spatial_ref = SpatialRef::from_wkt(&dataset.projection())
-            .expect("source spatial reference");
-        let dst_spatial_ref = SpatialRef::from_epsg(4326)
-            .expect("destination spatial reference");
-        let coord_transform = CoordTransform::new(&src_spatial_ref,
-            &dst_spatial_ref).expect("coordinate transform");
-
-        // transform corner pixels
-        let (width, height) = dataset.size();
-        let (width, height) = (width as isize, height as isize);
-        assert_eq!(super::transform_pixel(0, 0, 0, &transform,
-                &coord_transform).expect("ul pixel transform"),
-            (-106.1831726065988, 40.644794803779625, 0.0));
-
-        assert_eq!(super::transform_pixel(0, height, 0, &transform,
-                &coord_transform).expect("ll pixel transform"),
-            (-106.16613169554964, 39.65575257223607, 0.0));
-
-        assert_eq!(super::transform_pixel(width, 0, 0, &transform,
-                &coord_transform).expect("ur pixel transform"),
-            (-104.88455693238069, 40.65079881091997, 0.0));
-
-        assert_eq!(super::transform_pixel(width, height, 0, &transform,
-                &coord_transform).expect("lr pixel transform"),
-            (-104.8862200854741, 39.66155122695049, 0.0));
-    }*/
+    const APPLETON_LAT_LONG: (f64, f64) = (-88.4, 44.266667);
+    const APPLETON_MERCATOR: (f64, f64) = (-9840642.99, 5506802.68);
+    const FORT_COLLINS_LAT_LONG: (f64, f64) = (-105.078056, 40.559167);
+    const FORT_COLLINS_MERCATOR: (f64, f64) = (-11697235.69, 4947534.74);
+    const HAMBURG_LAT_LONG: (f64, f64) = (10.001389, 53.565278);
+    const HAMBURG_MERCATOR: (f64, f64) = (1113349.53, 7088251.30);
 
     #[test]
-    fn get_geohash_intervals() {
-        assert_eq!(super::Geocode::Geohash.get_intervals(1),
+    fn geohash_encode() {
+        let geocode = Geocode::Geohash;
+
+        let result = geocode.encode(
+            HAMBURG_LAT_LONG.0, HAMBURG_LAT_LONG.1, 4);
+        assert!(result.is_ok());
+        assert_eq!("u1x0", &result.unwrap());
+
+        let result = geocode.encode(
+            FORT_COLLINS_LAT_LONG.0, FORT_COLLINS_LAT_LONG.1, 6);
+        assert!(result.is_ok());
+        assert_eq!("9xjq8z", &result.unwrap());
+
+        let result = geocode.encode(
+            APPLETON_LAT_LONG.0, APPLETON_LAT_LONG.1, 8);
+        assert!(result.is_ok());
+        assert_eq!("dpc5u6t0", &result.unwrap());
+    }
+
+    #[test]
+    fn transform_coord() {
+        // initialize CoordTransform
+        let geohash_code = Geocode::Geohash.get_epsg_code();
+        let src_spatial_ref = SpatialRef::from_epsg(geohash_code)
+            .expect("initailize geohash SpatialRef");
+
+        let quadtile_code = Geocode::QuadTile.get_epsg_code();
+        let dst_spatial_ref = SpatialRef::from_epsg(quadtile_code)
+            .expect("initailize quadtile SpatialRef");
+    
+        src_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+        dst_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+
+        let coord_transform = CoordTransform::new(&src_spatial_ref,
+            &dst_spatial_ref).expect("intiailize CoordTransform");
+
+        // test coordinates
+        let result = super::transform_coord(HAMBURG_LAT_LONG.0,
+            HAMBURG_LAT_LONG.1, 0.0, &coord_transform);
+        assert!(result.is_ok());
+
+        let coordinates = result.unwrap();
+        assert!((coordinates.0 - HAMBURG_MERCATOR.0).abs() < 0.01);
+        assert!((coordinates.1 - HAMBURG_MERCATOR.1).abs() < 0.01);
+
+        let result = super::transform_coord(FORT_COLLINS_LAT_LONG.0,
+            FORT_COLLINS_LAT_LONG.1, 0.0, &coord_transform);
+        assert!(result.is_ok());
+
+        let coordinates = result.unwrap();
+        assert!((coordinates.0 - FORT_COLLINS_MERCATOR.0).abs() < 0.01);
+        assert!((coordinates.1 - FORT_COLLINS_MERCATOR.1).abs() < 0.01);
+
+        let result = super::transform_coord(APPLETON_LAT_LONG.0,
+            APPLETON_LAT_LONG.1, 0.0, &coord_transform);
+        assert!(result.is_ok());
+
+        let coordinates = result.unwrap();
+        assert!((coordinates.0 - APPLETON_MERCATOR.0).abs() < 0.01);
+        assert!((coordinates.1 - APPLETON_MERCATOR.1).abs() < 0.01);
+    }
+
+    // TODO - transform pixel
+
+    // TODO - transform pixels
+
+    #[test]
+    fn geohash_intervals() {
+        let geocode = Geocode::Geohash;
+        assert_eq!(geocode.get_intervals(1),
             (45.0, 45.0));
-        assert_eq!(super::Geocode::Geohash.get_intervals(2),
+        assert_eq!(geocode.get_intervals(2),
             (11.25, 5.625));
-        assert_eq!(super::Geocode::Geohash.get_intervals(3),
+        assert_eq!(geocode.get_intervals(3),
             (1.40625, 1.40625));
-        assert_eq!(super::Geocode::Geohash.get_intervals(4),
+        assert_eq!(geocode.get_intervals(4),
             (0.3515625, 0.17578125));
-        assert_eq!(super::Geocode::Geohash.get_intervals(5),
+        assert_eq!(geocode.get_intervals(5),
             (0.0439453125, 0.0439453125));
-        assert_eq!(super::Geocode::Geohash.get_intervals(6),
+        assert_eq!(geocode.get_intervals(6),
             (0.010986328125, 0.0054931640625));
     }
 
-    // TODO - test get_window_bounds
+    // TODO - test get_bounds
+ 
+    // TODO - test get_windows
+
+    #[test]
+    fn quadtile_encode() {
+        let geocode = Geocode::QuadTile;
+
+        let result = geocode.encode(
+            HAMBURG_MERCATOR.0, HAMBURG_MERCATOR.1, 4);
+        assert!(result.is_ok());
+        assert_eq!("1202", &result.unwrap());
+
+        let result = geocode.encode(
+            FORT_COLLINS_MERCATOR.0, FORT_COLLINS_MERCATOR.1, 6);
+        assert!(result.is_ok());
+        assert_eq!("023101", &result.unwrap());
+
+        let result = geocode.encode(
+            APPLETON_MERCATOR.0, APPLETON_MERCATOR.1, 8);
+        assert!(result.is_ok());
+        assert_eq!("03022201", &result.unwrap());
+    }
+
+    #[test]
+    fn quadtile_intervals() {
+        let geocode = Geocode::QuadTile;
+        assert_eq!(geocode.get_intervals(1),
+            (20037508.342789248, 20037508.342789248));
+        assert_eq!(geocode.get_intervals(2),
+            (10018754.171394624, 10018754.171394624));
+        assert_eq!(geocode.get_intervals(3),
+            (5009377.085697312, 5009377.085697312));
+        assert_eq!(geocode.get_intervals(4),
+            (2504688.542848656, 2504688.542848656));
+        assert_eq!(geocode.get_intervals(5),
+            (1252344.271424328, 1252344.271424328));
+        assert_eq!(geocode.get_intervals(6),
+            (626172.135712164, 626172.135712164));
+    }
 }
