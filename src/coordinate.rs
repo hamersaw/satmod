@@ -4,14 +4,14 @@ use gdal::spatial_ref::{CoordTransform, SpatialRef};
 use std::error::Error;
 
 const GEOHASH_BOUNDS: (f64, f64, f64, f64) = (-180.0, 180.0, -90.0, 90.0);
-static GEOHASH32_CHARS: &'static [char] = &['0', '1', '2', '3', '4',
+static GEOHASH32_CHARS: &[char] = &['0', '1', '2', '3', '4',
     '5', '6', '7', '8', '9', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'j',
     'k', 'm', 'n', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'
 ];
 
 const QUADTILE_BOUNDS: (f64, f64, f64, f64) = (-20037508.342789248,
     20037508.342789248, -20037508.342789248, 20037508.342789248);
-static QUADTILE_CHARS: &'static [char] = &['2', '0', '3', '1'];
+static QUADTILE_CHARS: &[char] = &['2', '0', '3', '1'];
 
 #[derive(Clone, Copy, Debug)]
 pub enum Geocode {
@@ -193,7 +193,7 @@ pub fn transform_pixel(x: isize, y: isize, z: isize,
     transform_coord(x_coord, y_coord, z as f64, coord_transform)
 }
 
-pub fn transform_pixels(pixels: &Vec<(isize, isize, isize)>,
+pub fn transform_pixels(pixels: &[(isize, isize, isize)],
         transform: &[f64; 6], coord_transform: &CoordTransform)
         -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Box<dyn Error>> {
     // convert pixels to coordinates

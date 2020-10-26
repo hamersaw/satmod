@@ -3,7 +3,7 @@ use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use std::error::Error;
 
-pub fn merge(datasets: &Vec<Dataset>)
+pub fn merge(datasets: &[Dataset])
         -> Result<Dataset, Box<dyn Error>> {
     // TODO - ensure datasets are in same spatial reference system
 

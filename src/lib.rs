@@ -76,7 +76,7 @@ fn _get_coverage<T: Copy + FromPrimitive + GdalType + PartialEq>(
     Ok(())
 }
 
-pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Box<dyn Error>> {
+pub fn fill(datasets: &[Dataset]) -> Result<Dataset, Box<dyn Error>> {
     let rasterband = datasets[0].rasterband(1)?;
     let no_data_value = rasterband.no_data_value();
 
@@ -91,7 +91,7 @@ pub fn fill(datasets: &Vec<Dataset>) -> Result<Dataset, Box<dyn Error>> {
 }
 
 fn _fill<T: Copy + FromPrimitive + GdalType + PartialEq>(
-        datasets: &Vec<Dataset>, no_data_option: Option<f64>)
+        datasets: &[Dataset], no_data_option: Option<f64>)
         -> Result<Dataset, Box<dyn Error>> {
     let no_data_value = T::from_f64(no_data_option.unwrap_or(0.0));
     let dataset = &datasets[0];

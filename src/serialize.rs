@@ -117,7 +117,7 @@ pub fn write<T: Write>(dataset: &Dataset, writer: &mut T)
     // write projection
     let projection = dataset.projection();
     writer.write_u32::<BigEndian>(projection.len() as u32)?;
-    writer.write(projection.as_bytes())?;
+    writer.write_all(projection.as_bytes())?;
 
     // write gdal type and no_data value
     let rasterband = dataset.rasterband(1)?;
@@ -148,7 +148,7 @@ fn write_raster<T: Write>(dataset: &Dataset, index: isize,
         GDALDataType::GDT_Byte => {
             let buffer = dataset.rasterband(index)?
                 .read_band_as::<u8>()?;
-            writer.write(&buffer.data)?;
+            writer.write_all(&buffer.data)?;
         },
         GDALDataType::GDT_Int16 => {
             let buffer = dataset.rasterband(index)?
@@ -172,33 +172,50 @@ fn write_raster<T: Write>(dataset: &Dataset, index: isize,
 
 #[cfg(test)]
 mod tests {
-    use gdal::{Dataset, Driver};
-    use gdal_sys::GDALDataType;
+    use gdal::Dataset;
 
-    use std::collections::BTreeMap;
     use std::io::Cursor;
     use std::path::Path;
 
-    /*#[test]
-    fn transfer() {
-        let path = Path::new("examples/L1C_T13TDE_A003313_20171024T175403");
-        //let path = Path::new("examples/T13TDF_20150821T180236_B01.jp2");
-
+    #[test]
+    fn serialize_cycle() {
         // read dataset
-        let dataset = Dataset::open(path).expect("dataset open");
+        let path = Path::new("fixtures/MCD43A4.h10v04.006.tif");
+        let dataset = Dataset::open(path).expect("open dataset");
 
         // write dataset to buffer
         let mut buffer = Vec::new();
-        super::write(&dataset, &mut buffer).expect("dataset write");
+        super::write(&dataset, &mut buffer).expect("write dataset");
 
         // read dataset from buffer
         let mut cursor = Cursor::new(buffer);
-        let read_dataset = super::read(&mut cursor)
-            .expect("dataset read");
+        let dataset2 = super::read(&mut cursor).expect("read dataset");
 
-        // open gtiff driver
-        let driver = Driver::get("GTiff").expect("get driver");
-        read_dataset.create_copy(&driver, "/tmp/st-image-transfer", None)
-            .expect("dataset copy");
-    }*/
+        // compare projections
+        let projection = dataset.projection();
+        let projection2 = dataset.projection();
+        assert_eq!(projection, projection2);
+
+        // compare transforms
+        let transform = dataset.geo_transform();
+        let transform2 = dataset2.geo_transform();
+        assert_eq!(transform, transform2);
+ 
+        // iterate over rasterbands
+        for i in 1..dataset.raster_count() {
+            // read bands
+            let band = dataset.rasterband(i).expect("read raster");
+            let band2 = dataset2.rasterband(i).expect("read raster2");
+
+            // compare band types
+            let band_type = band.band_type();
+            let band_type2 = band2.band_type();
+            assert_eq!(band_type, band_type2);
+
+            // compate band data
+            let data = band.read_band_as::<u8>().expect("read band");
+            let data2 = band2.read_band_as::<u8>().expect("read band2");
+            assert_eq!(data.data, data2.data);
+        }
+    }
 }
