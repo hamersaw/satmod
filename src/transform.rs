@@ -1,5 +1,6 @@
 use gdal::{Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
+use gdal_sys::OSRAxisMappingStrategy;
 
 use std::error::Error;
 
@@ -104,10 +105,16 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         &dataset.projection())?;
     let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
 
+    src_spatial_ref.set_axis_mapping_strategy(
+        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    dst_spatial_ref.set_axis_mapping_strategy(
+        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+
     let coord_transform = CoordTransform::new(
         &src_spatial_ref, &dst_spatial_ref)?;
     let reverse_transform = CoordTransform::new(
         &dst_spatial_ref, &src_spatial_ref)?;
+
 
     // compute center point pixels
     let mid_cx = (min_cx + max_cx) / 2.0;
@@ -157,7 +164,7 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         }
 
         // increment one of the bounds
-        // TODO - need to fix this in the case where transforms are non-negative
+        // TODO - need to fix this in the case where y transforms are non-negative
         let bound_differences = vec![
             bound_min_cx - min_cx,
             max_cx - bound_max_cx, 
@@ -166,9 +173,9 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         ];
 
         let (mut index, mut value) = (0, bound_differences[0]);
-        for i in 1..bound_differences.len() {
-            if bound_differences[i] > value {
-                value = bound_differences[i];
+        for (i, x) in bound_differences.iter().enumerate().skip(1) {
+            if x > &value {
+                value = *x;
                 index = i;
             }
         }
@@ -255,12 +262,12 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
 
 #[cfg(test)]
 mod tests {
-    use crate::coordinate::Geocode;
+    //use crate::coordinate::Geocode;
 
-    use gdal::{Dataset, Driver};
-    use gdal_sys::GDALDataType;
+    //use gdal::{Dataset, Driver};
+    //use gdal_sys::GDALDataType;
 
-    use std::path::Path;
+    //use std::path::Path;
 
     /*#[test]
     fn transform_merge() {

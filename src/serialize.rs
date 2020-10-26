@@ -14,8 +14,8 @@ pub fn read<T: Read>(reader: &mut T)
 
     // read geo transform
     let mut transform = [0.0f64; 6];
-    for i in 0..transform.len() {
-        transform[i] = reader.read_f64::<BigEndian>()?;
+    for value in transform.iter_mut() {
+        *value = reader.read_f64::<BigEndian>()?;
     }
  
     // read projection

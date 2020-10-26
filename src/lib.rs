@@ -104,9 +104,7 @@ fn _fill<T: Copy + FromPrimitive + GdalType + PartialEq>(
     }
 
     // fill with remaining datasets
-    for i in 1..datasets.len() {
-        let fill_dataset = &datasets[i];
-
+    for fill_dataset in datasets.iter().skip(1) {
         // read fill dataset rasterbands
         let mut fill_rasters = Vec::new();
         for j in 0..fill_dataset.raster_count() {
@@ -124,8 +122,8 @@ fn _fill<T: Copy + FromPrimitive + GdalType + PartialEq>(
 
             // check if rasterband pixel is valid
             let mut valid = false;
-            for k in 0..rasters.len() {
-                valid = valid || rasters[k].data[j] != no_data_value;
+            for raster in rasters.iter() {
+                valid = valid || raster.data[j] != no_data_value;
             }
 
             // copy pixels from fill_raster bands

@@ -1,7 +1,10 @@
 use gdal::Dataset;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
+use gdal_sys::OSRAxisMappingStrategy;
 
 use std::error::Error;
+
+pub type WindowBounds = (Vec<f64>, Vec<f64>, Vec<f64>);
 
 const GEOHASH_BOUNDS: (f64, f64, f64, f64) = (-180.0, 180.0, -90.0, 90.0);
 static GEOHASH32_CHARS: &[char] = &['0', '1', '2', '3', '4',
@@ -126,6 +129,11 @@ pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
         &dataset.projection())?;
     let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
 
+    src_spatial_ref.set_axis_mapping_strategy(
+        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    dst_spatial_ref.set_axis_mapping_strategy(
+        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+
     let coord_transform = CoordTransform::new(
         &src_spatial_ref, &dst_spatial_ref)?;
 
@@ -142,9 +150,9 @@ pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
         &transform, &coord_transform)?;
 
     let min_cx = xs.iter().cloned().fold(1./0., f64::min);
-    let max_cx = xs.iter().cloned().fold(0./0., f64::max);
+    let max_cx = xs.iter().cloned().fold(f64::NAN, f64::max);
     let min_cy = ys.iter().cloned().fold(1./0., f64::min);
-    let max_cy = ys.iter().cloned().fold(0./0., f64::max);
+    let max_cy = ys.iter().cloned().fold(f64::NAN, f64::max);
 
     Ok((min_cx, max_cx, min_cy, max_cy))
 }
@@ -195,7 +203,7 @@ pub fn transform_pixel(x: isize, y: isize, z: isize,
 
 pub fn transform_pixels(pixels: &[(isize, isize, isize)],
         transform: &[f64; 6], coord_transform: &CoordTransform)
-        -> Result<(Vec<f64>, Vec<f64>, Vec<f64>), Box<dyn Error>> {
+        -> Result<WindowBounds, Box<dyn Error>> {
     // convert pixels to coordinates
     let mut xs: Vec<f64> = pixels.iter().map(|(x, y, _)| {
         transform[0] + (*x as f64 * transform[1])
