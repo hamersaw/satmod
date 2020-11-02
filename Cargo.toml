@@ -10,3 +10,7 @@ edition = "2018"
 byteorder = "1"
 gdal = { path = "../gdal" }
 gdal-sys = { path = "../gdal/gdal-sys" }
+
+[build-dependencies]
+gdal-sys = { path = "../gdal/gdal-sys" }
+semver = "0.11"

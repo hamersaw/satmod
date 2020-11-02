@@ -1,6 +1,5 @@
 use gdal::Dataset;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
-use gdal_sys::OSRAxisMappingStrategy;
 
 use std::error::Error;
 
@@ -15,10 +14,14 @@ pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
         &dataset.projection())?;
     let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
 
-    src_spatial_ref.set_axis_mapping_strategy(
-        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-    dst_spatial_ref.set_axis_mapping_strategy(
-        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    #[cfg(major_ge_3)]
+    {
+        use gdal_sys::OSRAxisMappingStrategy;
+        src_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+        dst_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    }
 
     let coord_transform = CoordTransform::new(
         &src_spatial_ref, &dst_spatial_ref)?;
@@ -128,7 +131,6 @@ pub fn transform_coord(x: f64, y: f64, z: f64,
 #[cfg(test)]
 mod tests {
     use gdal::spatial_ref::{CoordTransform, SpatialRef};
-    use gdal_sys::OSRAxisMappingStrategy;
 
     const APPLETON_LAT_LONG: (f64, f64) = (-88.4, 44.266667);
     const APPLETON_MERCATOR: (f64, f64) = (-9840642.99, 5506802.68);
@@ -143,10 +145,14 @@ mod tests {
         let dst_spatial_ref = SpatialRef::from_epsg(3857)
             .expect("initailize quadtile SpatialRef");
     
-        src_spatial_ref.set_axis_mapping_strategy(
-            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-        dst_spatial_ref.set_axis_mapping_strategy(
-            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+        #[cfg(major_ge_3)]
+        {
+            use gdal_sys::OSRAxisMappingStrategy;
+            src_spatial_ref.set_axis_mapping_strategy(
+                OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+            dst_spatial_ref.set_axis_mapping_strategy(
+                OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+        }
 
         let coord_transform = CoordTransform::new(&src_spatial_ref,
             &dst_spatial_ref).expect("intiailize CoordTransform");

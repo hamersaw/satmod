@@ -1,6 +1,5 @@
 use gdal::{Dataset, Driver};
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
-use gdal_sys::OSRAxisMappingStrategy;
 
 use std::error::Error;
 
@@ -105,10 +104,14 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         &dataset.projection())?;
     let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
 
-    src_spatial_ref.set_axis_mapping_strategy(
-        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-    dst_spatial_ref.set_axis_mapping_strategy(
-        OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    #[cfg(major_ge_3)]
+    {
+        use gdal_sys::OSRAxisMappingStrategy;
+        src_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+        dst_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    }
 
     let coord_transform = CoordTransform::new(
         &src_spatial_ref, &dst_spatial_ref)?;
