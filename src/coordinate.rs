@@ -2,27 +2,15 @@ use gdal::Dataset;
 use gdal::spatial_ref::{CoordTransform, SpatialRef};
 
 use std::error::Error;
+use std::ffi::CStr;
 
 pub type WindowBounds = (Vec<f64>, Vec<f64>, Vec<f64>);
 
 pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
         -> Result<(f64, f64, f64, f64), Box<dyn Error>> {
     // initialize transform array and CoordTransform's from dataset
-    let transform = dataset.geo_transform()?;
-
-    let src_spatial_ref = SpatialRef::from_wkt(
-        &dataset.projection())?;
-    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
-
-    #[cfg(major_ge_3)]
-    {
-        use gdal_sys::OSRAxisMappingStrategy;
-        src_spatial_ref.set_axis_mapping_strategy(
-            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-        dst_spatial_ref.set_axis_mapping_strategy(
-            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-    }
-
+    let (transform, _, src_spatial_ref, dst_spatial_ref) =
+        get_transform_refs(dataset, epsg_code)?;
     let coord_transform = CoordTransform::new(
         &src_spatial_ref, &dst_spatial_ref)?;
 
@@ -44,6 +32,58 @@ pub fn get_bounds(dataset: &Dataset, epsg_code: u32)
     let max_cy = ys.iter().cloned().fold(f64::NAN, f64::max);
 
     Ok((min_cx, max_cx, min_cy, max_cy))
+}
+
+pub fn get_transform_refs(dataset: &Dataset, epsg_code: u32) 
+        -> Result<([f64; 6], String, SpatialRef, SpatialRef), Box<dyn Error>> {
+    // identify transform array and projection from dataset
+    let (transform, projection) = match dataset.geo_transform() {
+        Ok(transform) => (transform, dataset.projection()),
+        Err(_) => {
+            // validate dataset has global control points (GCPs)
+            let gcp_count = unsafe {
+                match gdal_sys::GDALGetGCPCount(dataset.c_dataset()) {
+                    0 => return Err("no GCPs found".into()),
+                    x => x,
+                }
+            };
+
+            // infer transform from global control points
+            let mut transform = [0.0f64; 6];
+            unsafe {
+                let gcps = gdal_sys::GDALGetGCPs(dataset.c_dataset());
+                if gdal_sys::GDALGCPsToGeoTransform(gcp_count,
+                        gcps, transform.as_mut_ptr(), 1) != 1 {
+                    return Err("too few GCPs to infer transform".into());
+                }
+            };
+
+            // parse gcp projection
+            let rv = unsafe {
+                gdal_sys::GDALGetGCPProjection(dataset.c_dataset())
+            };
+
+            let c_str = unsafe { CStr::from_ptr(rv) };
+            let projection = c_str.to_string_lossy().into_owned();
+
+            (transform, projection)
+        },
+    };
+
+    // initialize transform array and CoordTransform's from dataset
+    let src_spatial_ref = SpatialRef::from_wkt(&projection)?;
+    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
+
+    #[cfg(major_ge_3)]
+    {
+        use gdal_sys::OSRAxisMappingStrategy;
+        src_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+        dst_spatial_ref.set_axis_mapping_strategy(
+            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
+    }
+
+    Ok((transform, projection, src_spatial_ref, dst_spatial_ref))
 }
 
 pub fn get_windows(min_x: f64, max_x: f64, min_y: f64, max_y: f64,

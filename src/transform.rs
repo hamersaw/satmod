@@ -1,5 +1,5 @@
 use gdal::{Dataset, Driver};
-use gdal::spatial_ref::{CoordTransform, SpatialRef};
+use gdal::spatial_ref::CoordTransform;
 
 use std::error::Error;
 
@@ -96,28 +96,15 @@ pub fn merge(datasets: &[Dataset])
 
 pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         max_cy: f64, epsg_code: u32) -> Result<Dataset, Box<dyn Error>> {
-    // initialize transform array and CoordTransform's from dataset
-    let transform = dataset.geo_transform()?;
     let (src_width, src_height) = dataset.raster_size();
 
-    let src_spatial_ref = SpatialRef::from_wkt(
-        &dataset.projection())?;
-    let dst_spatial_ref = SpatialRef::from_epsg(epsg_code)?;
-
-    #[cfg(major_ge_3)]
-    {
-        use gdal_sys::OSRAxisMappingStrategy;
-        src_spatial_ref.set_axis_mapping_strategy(
-            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-        dst_spatial_ref.set_axis_mapping_strategy(
-            OSRAxisMappingStrategy::OAMS_TRADITIONAL_GIS_ORDER);
-    }
-
+    // initialize CoordTransforms from dataset
+    let (mut transform, projection, src_spatial_ref, dst_spatial_ref) =
+        crate::coordinate::get_transform_refs(dataset, epsg_code)?;
     let coord_transform = CoordTransform::new(
         &src_spatial_ref, &dst_spatial_ref)?;
     let reverse_transform = CoordTransform::new(
         &dst_spatial_ref, &src_spatial_ref)?;
-
 
     // compute center point pixels
     let mid_cx = (min_cx + max_cx) / 2.0;
@@ -241,14 +228,14 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
         dataset.raster_count(), no_data_value)?;
 
     // modify transform
-    let mut transform = dataset.geo_transform()?;
+    //let mut transform = dataset.geo_transform()?;
     transform[0] = transform[0] + (bound_min_px as f64 * transform[1])
         + (bound_min_py as f64 * transform[2]);
     transform[3] = transform[3] + (bound_min_px as f64 * transform[4])
         + (bound_min_py as f64 * transform[5]);
 
     split_dataset.set_geo_transform(&transform)?;
-    split_dataset.set_projection(&dataset.projection())?;
+    split_dataset.set_projection(&projection)?;
 
     // copy rasterband data to new image
     for i in 0..dataset.raster_count() {
