@@ -94,8 +94,9 @@ pub fn merge(datasets: &[Dataset])
     Ok(merge_dataset)
 }
 
-pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
-        max_cy: f64, epsg_code: u32) -> Result<Dataset, Box<dyn Error>> {
+pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64,
+        min_cy : f64, max_cy: f64, epsg_code: u32)
+        -> Result<Option<Dataset>, Box<dyn Error>> {
     let (src_width, src_height) = dataset.raster_size();
 
     // initialize CoordTransforms from dataset
@@ -191,7 +192,7 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
     // skip window if the pixel boundaries don't fall within image
     if bound_max_px < 0 || bound_min_px >= src_width as isize
             || bound_max_py < 0 || bound_min_py >= src_height as isize {
-        return Err("pixel boundaries do not fall within image".into());
+        return Ok(None);
     }
 
     // compute raster offsets
@@ -247,7 +248,7 @@ pub fn split(dataset: &Dataset, min_cx: f64, max_cx: f64, min_cy : f64,
             (buf_width, buf_height))?;
     }
 
-    Ok(split_dataset)
+    Ok(Some(split_dataset))
 }
 
 #[cfg(test)]
