@@ -30,6 +30,12 @@ impl FromPrimitive for i16 {
     }
 }
 
+impl FromPrimitive for f32 {
+    fn from_f64(value: f64) -> Self {
+        value as f32
+    }
+}
+
 pub fn get_coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
     let (width, height) = dataset.raster_size();
     let mut invalid_pixels = vec![true; width * height];
@@ -45,6 +51,8 @@ pub fn get_coverage(dataset: &Dataset) -> Result<f64, Box<dyn Error>> {
             GDALDataType::GDT_Int16 => _get_coverage::<i16>(dataset,
                 i+1, &mut invalid_pixels, no_data_value)?,
             GDALDataType::GDT_UInt16 => _get_coverage::<u16>(dataset,
+                i+1, &mut invalid_pixels, no_data_value)?,
+            GDALDataType::GDT_Float32 => _get_coverage::<f32>(dataset,
                 i+1, &mut invalid_pixels, no_data_value)?,
             _ => unimplemented!(),
         }
@@ -167,6 +175,8 @@ pub fn init_dataset(driver: &Driver, filename: &str,
             filename, width, height, rasterband_count, no_data_value),
         GDALDataType::GDT_UInt16 => _init_dataset::<u16>(driver,
             filename, width, height, rasterband_count, no_data_value),
+        GDALDataType::GDT_Float32 => _init_dataset::<f32>(driver,
+            filename, width, height, rasterband_count, no_data_value),
         _ => unimplemented!(),
     }
 }
@@ -212,6 +222,9 @@ pub fn copy_raster(src_dataset: &Dataset, src_index: isize,
             src_index, src_window, src_window_size, dst_dataset, 
             dst_index, dst_window, dst_window_size),
         GDALDataType::GDT_UInt16 => _copy_raster::<u16>(src_dataset, 
+            src_index, src_window, src_window_size, dst_dataset, 
+            dst_index, dst_window, dst_window_size),
+        GDALDataType::GDT_Float32 => _copy_raster::<f32>(src_dataset, 
             src_index, src_window, src_window_size, dst_dataset, 
             dst_index, dst_window, dst_window_size),
         _ => unimplemented!(),
