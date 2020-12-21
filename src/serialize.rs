@@ -95,6 +95,19 @@ fn read_raster<T: Read>(dataset: &Dataset, index: isize,
             dataset.rasterband(index)?.write::<u16>((0, 0),
                 (width as usize, height as usize), &buffer)?;
         },
+        GDALDataType::GDT_Float32 => {
+            // read rasterband
+            let mut data = Vec::new();
+            for _ in 0..size {
+                data.push(reader.read_f32::<BigEndian>()?);
+            }
+
+            let buffer = Buffer::new((width as usize,
+                height as usize), data);
+
+            dataset.rasterband(index)?.write::<f32>((0, 0),
+                (width as usize, height as usize), &buffer)?;
+        },
         _ => unimplemented!(),
     }
 
@@ -164,6 +177,13 @@ fn write_raster<T: Write>(dataset: &Dataset, index: isize,
                 writer.write_u16::<BigEndian>(pixel)?;
             }
         },
+        GDALDataType::GDT_Float32 => {
+            let buffer = dataset.rasterband(index)?
+                .read_band_as::<f32>()?;
+            for pixel in buffer.data {
+                writer.write_f32::<BigEndian>(pixel)?;
+            }
+        }
         _ => unimplemented!(),
     }
 
